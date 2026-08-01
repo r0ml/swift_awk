@@ -1,0 +1,171 @@
+// Parser.swift
+// Generic parser combinator library — the "generator" in "parser generator".
+//
+// Define grammar rules by composing Parser<T> values with combinators,
+// then call parser.run(on:) to parse a token sequence.
+
+typealias TokenStream = ArraySlice<AWKToken>
+
+// MARK: - Error
+
+struct ParseError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+    init(_ message: String) { self.message = message }
+}
+
+// MARK: - Core type
+
+/// A parser that consumes tokens from the front of a stream and produces a value of type T.
+struct Parser<T> {
+    let parse: (inout TokenStream) throws -> T
+    init(_ parse: @escaping (inout TokenStream) throws -> T) { self.parse = parse }
+
+    func run(on tokens: [AWKToken]) throws -> T {
+        var stream = tokens[...]
+        return try parse(&stream)
+    }
+}
+
+// MARK: - Fundamental token operations
+
+/// Consume and return the next token.
+func anyToken() -> Parser<AWKToken> {
+    Parser { stream in
+        guard let tok = stream.first else { throw ParseError("Unexpected end of input") }
+        stream = stream.dropFirst()
+        return tok
+    }
+}
+
+/// Match and consume a specific token value.
+func token(_ expected: AWKToken) -> Parser<AWKToken> {
+    Parser { stream in
+        guard stream.first == expected else {
+            let got = stream.first.map { "\($0)" } ?? "end of input"
+            throw ParseError("Expected \(expected), got \(got)")
+        }
+        stream = stream.dropFirst()
+        return expected
+    }
+}
+
+/// Match any token satisfying the predicate.
+func satisfy(_ description: String = "token",
+             _ predicate: @escaping (AWKToken) -> Bool) -> Parser<AWKToken> {
+    Parser { stream in
+        guard let tok = stream.first, predicate(tok) else {
+            throw ParseError("Expected \(description)")
+        }
+        stream = stream.dropFirst()
+        return tok
+    }
+}
+
+/// Peek at the next token without consuming it.
+func peek() -> Parser<AWKToken?> {
+    Parser { stream in stream.first }
+}
+
+// MARK: - Combinator operations
+
+extension Parser {
+    func map<U>(_ transform: @escaping (T) throws -> U) -> Parser<U> {
+        Parser<U> { stream in try transform(try self.parse(&stream)) }
+    }
+
+    func flatMap<U>(_ transform: @escaping (T) throws -> Parser<U>) -> Parser<U> {
+        Parser<U> { stream in try transform(try self.parse(&stream)).parse(&stream) }
+    }
+
+    /// On failure, restore the stream and return nil.
+    var opt: Parser<T?> {
+        Parser<T?> { stream in
+            let saved = stream
+            do { return Optional(try self.parse(&stream)) }
+            catch { stream = saved; return nil }
+        }
+    }
+
+    /// Zero or more repetitions (greedy).
+    var many: Parser<[T]> {
+        Parser<[T]> { stream in
+            var results: [T] = []
+            while true {
+                let saved = stream
+                do { results.append(try self.parse(&stream)) }
+                catch { stream = saved; break }
+            }
+            return results
+        }
+    }
+
+    /// One or more repetitions.
+    var many1: Parser<[T]> {
+        flatMap { first in self.many.map { [first] + $0 } }
+    }
+
+    /// Parse self then `next`, discarding self's result.
+    func then<U>(_ next: @autoclosure @escaping () -> Parser<U>) -> Parser<U> {
+        flatMap { _ in next() }
+    }
+
+    /// Parse self then `next`, keeping self's result.
+    func keepLeft<U>(_ next: @autoclosure @escaping () -> Parser<U>) -> Parser<T> {
+        flatMap { v in next().map { _ in v } }
+    }
+
+    /// If this parser fails, return the given value without consuming input.
+    func orElse(_ default_: T) -> Parser<T> {
+        Parser { stream in
+            let saved = stream
+            do { return try self.parse(&stream) }
+            catch { stream = saved; return default_ }
+        }
+    }
+}
+
+// MARK: - Combining parsers
+
+func pure<T>(_ value: T) -> Parser<T> { Parser { _ in value } }
+
+/// Try each alternative; on failure restore the stream and try the next.
+func oneOf<T>(_ parsers: Parser<T>...) -> Parser<T> { oneOf(parsers) }
+func oneOf<T>(_ parsers: [Parser<T>]) -> Parser<T> {
+    Parser { stream in
+        var lastError: Error = ParseError("No alternatives matched")
+        for p in parsers {
+            let saved = stream
+            do { return try p.parse(&stream) }
+            catch { stream = saved; lastError = error }
+        }
+        throw lastError
+    }
+}
+
+func zip<A, B>(_ a: Parser<A>, _ b: Parser<B>) -> Parser<(A, B)> {
+    a.flatMap { va in b.map { (va, $0) } }
+}
+func zip<A, B, C>(_ a: Parser<A>, _ b: Parser<B>, _ c: Parser<C>) -> Parser<(A, B, C)> {
+    a.flatMap { va in b.flatMap { vb in c.map { (va, vb, $0) } } }
+}
+func zip<A, B, C, D>(_ a: Parser<A>, _ b: Parser<B>,
+                      _ c: Parser<C>, _ d: Parser<D>) -> Parser<(A, B, C, D)> {
+    a.flatMap { va in b.flatMap { vb in c.flatMap { vc in d.map { (va, vb, vc, $0) } } } }
+}
+
+func between<L, T, R>(_ left: Parser<L>, _ content: Parser<T>, _ right: Parser<R>) -> Parser<T> {
+    left.then(content).flatMap { v in right.map { _ in v } }
+}
+
+func sepBy<T, S>(_ p: Parser<T>, sep: Parser<S>) -> Parser<[T]> {
+    oneOf(sepBy1(p, sep: sep), pure([]))
+}
+func sepBy1<T, S>(_ p: Parser<T>, sep: Parser<S>) -> Parser<[T]> {
+    p.flatMap { first in (sep.then(p)).many.map { [first] + $0 } }
+}
+
+/// Wraps a parser in a closure to break mutual-recursion initialisation cycles.
+func lazy<T>(_ p: @escaping @autoclosure () -> Parser<T>) -> Parser<T> {
+    Parser { stream in try p().parse(&stream) }
+}

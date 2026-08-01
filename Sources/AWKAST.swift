@@ -1,0 +1,205 @@
+// AWKAST.swift
+// Swift-native Abstract Syntax Tree for AWK.
+// Replaces the generic C Node / Cell tree produced by awkgram.y.
+
+// MARK: - Top-level program
+
+struct AWKProgram {
+    var beginRules: [[Statement]]       // one inner array per BEGIN block
+    var rules: [PatternAction]
+    var endRules: [[Statement]]         // one inner array per END block
+    var functions: [FunctionDefinition]
+}
+
+struct FunctionDefinition {
+    var name: String
+    var params: [String]
+    var body: [Statement]
+}
+
+struct PatternAction {
+    var pattern: PatternKind
+    var body: [Statement]               // empty body = default "print $0" action
+}
+
+enum PatternKind {
+    case always                          // no pattern — matches every record
+    case expression(Expression)
+    case range(Expression, Expression)   // pat1, pat2
+}
+
+// MARK: - Statements
+
+indirect enum Statement {
+    case expression(Expression)
+    case print_(PrintKind, [Expression], PrintDest?)
+    case delete_(LValue)
+    case if_(Expression, Statement, Statement?)
+    case while_(Expression, Statement)
+    case doWhile(Statement, Expression)
+    case for_(Statement?, Expression?, Statement?, Statement)
+    case forIn(String, String, Statement)   // for (var in array) body
+    case block([Statement])
+    case next
+    case nextFile
+    case exit_(Expression?)
+    case return_(Expression?)
+    case break_
+    case continue_
+    case empty
+}
+
+enum PrintKind { case print, printf }
+
+enum PrintDest {
+    case pipe(Expression)
+    case append(Expression)
+    case redirect(Expression)
+}
+
+// MARK: - Expressions
+
+indirect enum Expression {
+    // Literals
+    case number(Double)
+    case string(String)
+    case regexMatch(String)              // /re/ as standalone — tests against $0
+
+    // Variables and field access
+    case variable(String)
+    case argument(Int)                   // function formal parameter by index
+    case varnf                           // $NF
+    case field(Expression)              // $expr
+    case element(String, [Expression])  // arr[k] or arr[k1, k2, ...]
+
+    // Assignment
+    case assign(AssignOp, LValue, Expression)
+
+    // Ternary
+    case ternary(Expression, Expression, Expression)
+
+    // Logical
+    case logicalOr(Expression, Expression)
+    case logicalAnd(Expression, Expression)
+
+    // Comparison
+    case equal(Expression, Expression)
+    case notEqual(Expression, Expression)
+    case lessThan(Expression, Expression)
+    case lessEqual(Expression, Expression)
+    case greaterThan(Expression, Expression)
+    case greaterEqual(Expression, Expression)
+
+    // Pattern matching
+    case patternMatch(Expression, Expression)     // expr ~ re
+    case patternNotMatch(Expression, Expression)  // expr !~ re
+
+    // Array membership
+    case inArray(Expression, String)
+    case inArrayTuple([Expression], String)       // (e1, e2, ...) in arr
+
+    // Getline
+    case getline(LValue?)                         // getline [var]
+    case getlineFrom(LValue?, Expression)         // getline [var] < file
+    case getlinePipe(LValue?, Expression)         // cmd | getline [var]
+
+    // Arithmetic
+    case concat(Expression, Expression)
+    case add(Expression, Expression)
+    case subtract(Expression, Expression)
+    case multiply(Expression, Expression)
+    case divide(Expression, Expression)
+    case modulo(Expression, Expression)
+    case power(Expression, Expression)
+
+    // Unary
+    case negate(Expression)
+    case unaryPlus(Expression)
+    case logicalNot(Expression)
+
+    // Increment / decrement
+    case preIncrement(LValue)
+    case preDecrement(LValue)
+    case postIncrement(LValue)
+    case postDecrement(LValue)
+
+    // Calls
+    case userCall(String, [Expression])
+    case builtinCall(AWKBuiltinID, [Expression])
+
+    // String operations
+    case sprintfExpr([Expression])
+    case subExpr(SubKind, Expression, Expression, LValue)   // sub/gsub(re, repl, target)
+    case substrExpr(Expression, Expression, Expression?)    // substr(str, start [, len])
+    case splitExpr(Expression, String, Expression?)         // split(str, arr [, fs])
+    case indexExpr(Expression, Expression)                  // index(haystack, needle)
+    case matchFuncExpr(Expression, Expression)              // match(str, re)
+    case closeExpr(Expression)
+    case indirect(Expression)                               // @expr
+}
+
+enum AssignOp: String {
+    case set    = "="
+    case addSet = "+="
+    case subSet = "-="
+    case mulSet = "*="
+    case divSet = "/="
+    case modSet = "%="
+    case powSet = "^="
+}
+
+enum SubKind { case sub, gsub }
+
+// MARK: - LValues (assignable locations)
+
+indirect enum LValue {
+    case variable(String)
+    case argument(Int)
+    case varnf
+    case field(Expression)
+    case element(String, [Expression])
+    case indirect(Expression)
+}
+
+// MARK: - LValue equality (needed for the parser)
+
+extension LValue: Equatable {
+    static func == (lhs: LValue, rhs: LValue) -> Bool {
+        switch (lhs, rhs) {
+        case (.variable(let a), .variable(let b)): return a == b
+        case (.argument(let a), .argument(let b)): return a == b
+        case (.varnf, .varnf): return true
+        default: return false   // field/element/indirect: skip deep equality for now
+        }
+    }
+}
+
+// MARK: - Convenience helpers used during parsing
+
+extension Expression {
+    /// Wrap in `!= 0` unless already guaranteed boolean.
+    /// Corresponds to notnull() in awkgram.y.
+    func notnull() -> Expression {
+        switch self {
+        case .equal, .notEqual, .lessThan, .lessEqual, .greaterThan, .greaterEqual,
+             .logicalOr, .logicalAnd, .logicalNot, .patternMatch, .patternNotMatch,
+             .inArray, .inArrayTuple:
+            return self
+        default:
+            return .notEqual(self, .number(0))
+        }
+    }
+
+    /// Convert an expression to an LValue if it denotes an assignable location.
+    func asLValue() -> LValue? {
+        switch self {
+        case .variable(let n):       return .variable(n)
+        case .argument(let i):       return .argument(i)
+        case .varnf:                 return .varnf
+        case .field(let e):          return .field(e)
+        case .element(let n, let k): return .element(n, k)
+        case .indirect(let e):       return .indirect(e)
+        default:                     return nil
+        }
+    }
+}
