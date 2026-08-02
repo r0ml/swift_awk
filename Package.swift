@@ -38,10 +38,19 @@ let package = Package(
   targets:
     [.executableTarget(name: "awk",
                        dependencies: [.product(name: "CMigration", package: "CMigration"), .product(name: "Atomics", package: "swift-atomics")] ),
-    ]
+
     // Targets are the basic building blocks of a package, defining a module or a test suite.
     // Targets can depend on other targets in this package and products from dependencies.
 //   + generateTestTargets()
+
+      .testTarget(name: "awkTest",
+                  dependencies: [.product(name: "ShellTesting", package: "ShellTesting"),
+                                 .target(name: "awk")
+                                 ],
+                                 path: nil,
+                  resources: [Resource.copy("Resources")])
+
+     ]
 )
 
 private func packageRoot() -> URL {

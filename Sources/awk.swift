@@ -132,9 +132,13 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
     }
 
     options.args = go.remaining
-    if options.args.count == 1 {
+
+      // FIXME: why was this here?
+      /*
+    if options.args.count == 0 {
       throw CmdErr(1)
     }
+*/
 
     //    Unix2003_compat = COMPAT_MODE("bin/awk", "unix2003")
 
@@ -173,27 +177,68 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
   func runCommand() async throws(CmdErr) {
     recinit(RECSIZE)
     syminit()
-/*    compile_time = COMPILING;
-    argv[0] = cmdname;  /* put prog name at front of arglist */
-    DPRINTF("argc=%d, argv[0]=%s\n", argc, argv[0]);
-    arginit(argc, argv);
-    if (!options.safe) {
-      envinit(environ)
+
+
+    //    compile_time = COMPILING;
+    // argv[0] = cmdname;  /* put prog name at front of arglist */
+    // DPRINTF("argc=%d, argv[0]=%s\n", argc, argv[0]);
+
+
+    // FIXME: do arginit:  put me back
+    // arginit(argc, argv);
+
+    // FIXME: do envinit: put me back
+    // if (!options.safe) {
+ //     envinit(environ)
+//    }
+
+    do {
+
+      // Step 1: Lex
+      var lexer = AWKLexer(options.lexprog ?? "")
+      let tokens = try lexer.tokenize()          // → [AWKToken]
+
+      // Step 2: Parse
+      let ast = try AWKParser.parse(tokens)      // → AWKProgram
+
+
+      //    yyparse();
+      setlocale(LC_NUMERIC, ""); /* back to whatever it is locally */
+
+      // FIXME: put me back
+      /*
+       if (fs) {
+       *FS = qstring(fs, "\0");
+       }
+       DPRINTF("errorflag=%d\n", errorflag);
+       if (errorflag == 0) {
+       compile_time = RUNNING;
+
+
+
+
+
+       run(winner);
+*/
+
+        // Step 3: Execute
+        let executor = AWKExecutor()
+        // From files:
+      try executor.run(ast, inputPaths: options.args, programArgs: ["awk", "data.txt"])
+        // From stdin (no inputPaths):
+        try executor.run(ast, inputPaths: [], programArgs: ["awk"])
+
+
+      // FIXME: put me back
+/*
+       } else {
+       bracecheck();
+       }
+       return(errorflag);
+       */
+    } catch(let e) {
+      throw CmdErr(2, "\(e.localizedDescription)")
     }
-    yyparse();
-    setlocale(LC_NUMERIC, ""); /* back to whatever it is locally */
-    if (fs) {
-      *FS = qstring(fs, "\0");
-    }
-    DPRINTF("errorflag=%d\n", errorflag);
-    if (errorflag == 0) {
-      compile_time = RUNNING;
-      run(winner);
-    } else {
-      bracecheck();
-    }
-    return(errorflag);
-    */
   }
 
   var usage : String { "usage: \(programName) [-F fs] [-v var=value] [-f progfile | 'prog'] [file ...]" }

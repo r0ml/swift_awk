@@ -185,7 +185,7 @@ struct AWKLexer {
                 var n = esc.wholeNumberValue!
                 if isOctal(cur() ?? " ") { n = 8 * n + eat()!.wholeNumberValue! }
                 if isOctal(cur() ?? " ") { n = 8 * n + eat()!.wholeNumberValue! }
-                result.append(Character(Unicode.Scalar(n & 0xFF)!))
+                result.append(Character(Unicode.Scalar(UInt8(n & 0xFF))))
             case "x":                               // hex
                 var hexStr = ""
                 while let h = cur(), h.isHexDigit { hexStr.append(h); eat() }

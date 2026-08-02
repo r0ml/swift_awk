@@ -69,10 +69,11 @@ private func program() -> Parser<AWKProgram> {
             let saved = stream
             do {
                 if let rule = try paStat(
+                    &stream,
                     beginRules: &beginRules,
                     endRules:   &endRules,
                     functions:  &functions
-                ).parse(&stream) {
+                ) {
                     rules.append(rule)
                 }
                 try skipSep().parse(&stream)
@@ -94,49 +95,48 @@ private func program() -> Parser<AWKProgram> {
 // MARK: - Pattern-action rules
 
 private func paStat(
+    _ stream: inout TokenStream,
     beginRules: inout [[Statement]],
     endRules:   inout [[Statement]],
     functions:  inout [FunctionDefinition]
-) -> Parser<PatternAction?> {
-    Parser { stream in
-        switch stream.first {
+) throws -> PatternAction? {
+    switch stream.first {
 
-        case .xbegin:
+    case .xbegin:
+        stream = stream.dropFirst()
+        let body = try stmtBlock().parse(&stream)
+        beginRules.append(body)
+        return nil
+
+    case .xend:
+        stream = stream.dropFirst()
+        let body = try stmtBlock().parse(&stream)
+        endRules.append(body)
+        return nil
+
+    case .funcKeyword:
+        stream = stream.dropFirst()
+        let fn = try parseFunctionDef().parse(&stream)
+        functions.append(fn)
+        return nil
+
+    case .lbrace:
+        // Always block — no pattern
+        let body = try stmtBlock().parse(&stream)
+        return PatternAction(pattern: .always, body: body)
+
+    default:
+        // Pattern, possibly followed by ',' pattern (range), possibly followed by block
+        let pat = try paPat().parse(&stream)
+        if stream.first == .comma {
             stream = stream.dropFirst()
-            let body = try stmtBlock().parse(&stream)
-            beginRules.append(body)
-            return nil
-
-        case .xend:
-            stream = stream.dropFirst()
-            let body = try stmtBlock().parse(&stream)
-            endRules.append(body)
-            return nil
-
-        case .funcKeyword:
-            stream = stream.dropFirst()
-            let fn = try parseFunctionDef().parse(&stream)
-            functions.append(fn)
-            return nil
-
-        case .lbrace:
-            // Always block — no pattern
-            let body = try stmtBlock().parse(&stream)
-            return PatternAction(pattern: .always, body: body)
-
-        default:
-            // Pattern, possibly followed by ',' pattern (range), possibly followed by block
-            let pat = try paPat().parse(&stream)
-            if stream.first == .comma {
-                stream = stream.dropFirst()
-                try skipNL().parse(&stream)
-                let pat2 = try paPat().parse(&stream)
-                let body = (stream.first == .lbrace) ? try stmtBlock().parse(&stream) : []
-                return PatternAction(pattern: .range(pat, pat2), body: body)
-            }
+            try skipNL().parse(&stream)
+            let pat2 = try paPat().parse(&stream)
             let body = (stream.first == .lbrace) ? try stmtBlock().parse(&stream) : []
-            return PatternAction(pattern: .expression(pat), body: body)
+            return PatternAction(pattern: .range(pat, pat2), body: body)
         }
+        let body = (stream.first == .lbrace) ? try stmtBlock().parse(&stream) : []
+        return PatternAction(pattern: .expression(pat), body: body)
     }
 }
 
