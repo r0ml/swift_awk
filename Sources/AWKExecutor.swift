@@ -4,6 +4,7 @@
 // (AWKProgram / Statement / Expression) rather than the C Node* tree.
 
 import Foundation
+import CMigration
 
 // MARK: - Call frame
 
