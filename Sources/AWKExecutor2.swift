@@ -7,10 +7,12 @@ extension AWKExecutor {
 
   // MARK: - Statement execution
 
+  // C: program() block loop — run.c
   func execBlock(_ stmts: [Statement]) throws {
       for stmt in stmts { try exec(stmt) }
   }
 
+  // C: execute() — run.c  (ifstat / whilestat / dostat / forstat / instat / jump)
   func exec(_ stmt: Statement) throws {
       switch stmt {
       case .empty: break
@@ -98,6 +100,7 @@ extension AWKExecutor {
 
   // MARK: - Expression evaluation
 
+  // C: execute() — run.c  (arith / relop / boolop / matchop / condexpr / cat / incrdecr / etc.)
   func eval(_ expr: Expression) throws -> AWKCell {
       switch expr {
 
@@ -333,9 +336,10 @@ extension AWKExecutor {
           return AWKCell.string(s)
       }
   }
-  
+
   // MARK: - Printf formatting
 
+  // C: format() — run.c
   func format(_ fmt: String, args: [Expression]) throws -> String {
       var result = ""
       var argIdx = 0

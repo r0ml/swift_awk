@@ -29,6 +29,7 @@ enum AWKSignal: Error {
 enum AWKRuntime {
 
     // MARK: Number parsing — mirrors C's atof with leading-junk-stop behaviour.
+    // C: strtod() / atof() pattern used in getfval() — tran.c
     static func parseNum(_ s: String) -> Double {
         var s = s
         while let c = s.first, c == " " || c == "\t" || c == "\n" || c == "\r" { s.removeFirst() }
@@ -53,6 +54,7 @@ enum AWKRuntime {
     }
 
     // Number → string using printf format.  Integers use %.30g for exact output.
+    // C: get_str_val() — tran.c (the CONVFMT/OFMT formatting path)
     static func numToStr(_ n: Double, fmt: String) -> String {
         guard n.isFinite else {
             return n.isNaN ? "nan" : (n > 0 ? "inf" : "-inf")
@@ -65,6 +67,7 @@ enum AWKRuntime {
     }
 
     // Returns true when the string is entirely numeric (per POSIX is_number).
+    // C: is_number() — lib.c
     static func isNumber(_ s: String) -> Bool {
         var s = s.trimmingCharacters(in: .whitespaces)
         if s.isEmpty { return false }
@@ -91,6 +94,7 @@ enum AWKRuntime {
 
     // Compare two cells: negative / zero / positive.
     // Numeric comparison when both have numeric values; string comparison otherwise.
+    // C: comparison logic in relop() — run.c
     static func compare(_ x: AWKCell, _ y: AWKCell, convfmt: String = "%.6g") -> Int {
         if x.hasNum && y.hasNum {
             let d = x.numVal - y.numVal
@@ -101,6 +105,7 @@ enum AWKRuntime {
     }
 
     // Compile an AWK regex and match against a string. Returns match range or nil.
+    // C: matchop() — run.c  (regex execution via pmatch() — b.c)
     static func match(pattern: String, in str: String) throws -> Range<String.Index>? {
         let re = try makeRegex(pattern)
         return re.firstMatch(in: str, range: NSRange(str.startIndex..., in: str))
@@ -108,6 +113,7 @@ enum AWKRuntime {
     }
 
     // Like match() but returns the range of the full match (for RSTART/RLENGTH).
+    // C: pmatch() — b.c
     static func pmatch(pattern: String, in str: String) throws
         -> (range: Range<String.Index>, nsRange: NSRange)?
     {
@@ -119,6 +125,7 @@ enum AWKRuntime {
         return (r, m.range)
     }
 
+    // C: makedfa() — b.c
     static func makeRegex(_ pattern: String) throws -> NSRegularExpression {
         do {
             return try NSRegularExpression(pattern: pattern, options: [])
@@ -128,6 +135,7 @@ enum AWKRuntime {
     }
 
     // Apply the AWK sub/gsub replacement string (& = matched text, \& = literal &, etc.)
+    // C: backsub() — run.c
     static func applyReplacement(_ repl: String, matched: Substring) -> String {
         var result = ""
         var i = repl.startIndex
@@ -177,6 +185,5 @@ enum AWKRuntime {
         return result
     }
 }
-
 
 

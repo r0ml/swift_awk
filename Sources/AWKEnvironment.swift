@@ -51,6 +51,7 @@ final class AWKEnvironment {
 
     // MARK: - Symbol table
 
+    // C: setsymtab() — tran.c
     func global(_ name: String) -> AWKCell {
         if let c = globals[name] { return c }
         let c = AWKCell(); globals[name] = c; return c
@@ -58,6 +59,7 @@ final class AWKEnvironment {
 
     // MARK: - Field management
 
+    // C: getfval(fldtab[n]) — tran.c
     func getField(_ n: Int) -> String {
         ensureFields()
         if n == 0 { ensureRecord(); return record }
@@ -65,6 +67,7 @@ final class AWKEnvironment {
         return fields[n - 1]
     }
 
+    // C: setsval(fldtab[n]) — tran.c
     func setField(_ n: Int, _ val: String) {
         if n == 0 {
             record = val; fieldsDirty = true; recordDirty = false; return
@@ -76,6 +79,7 @@ final class AWKEnvironment {
         recordDirty = true
     }
 
+    // C: setlastfld() + cleanfld() — lib.c
     func setNF(_ n: Int) {
         ensureFields()
         if n < fields.count { fields = Array(fields.prefix(n)) }
@@ -84,14 +88,17 @@ final class AWKEnvironment {
         recordDirty = true
     }
 
+    // C: recbld() — lib.c
     func ensureRecord() {
         if recordDirty { record = fields.joined(separator: OFS); recordDirty = false }
     }
 
+    // C: fldbld() trigger — lib.c
     func ensureFields() {
         if fieldsDirty { splitRecord(); fieldsDirty = false }
     }
 
+    // C: fldbld() body — lib.c
     private func splitRecord() {
         let s = record
         if FS == " " {
@@ -119,6 +126,7 @@ final class AWKEnvironment {
 
     // MARK: - I/O management
 
+    // C: openfile() / redirect() — run.c
     func fileFor(name: String, mode: AWKFileMode) throws -> AWKFile {
         for f in openFiles where f.name == name &&
             (f.mode == mode || (mode == .write && f.mode == .append) ||
@@ -168,17 +176,20 @@ final class AWKEnvironment {
         return f
     }
 
+    // C: fclose() / pclose() inline — run.c
     func closeFile(name: String) {
         if let i = openFiles.firstIndex(where: { $0.name == name }) {
             openFiles[i].close(); openFiles.remove(at: i)
         }
     }
 
+    // C: closeall() — run.c
     func closeAll() {
         for f in openFiles { f.close() }
         openFiles = []
     }
 
+    // C: flush_all() — run.c
     func flushAll() {
         for f in openFiles where f.mode == .write || f.mode == .append || f.mode == .outputPipe {
             try? f.handle.synchronize()
@@ -187,6 +198,7 @@ final class AWKEnvironment {
     }
 
     // MARK: - Subscript key building (SUBSEP-joined multi-dimensional key)
+    // C: SUBSEP-join in array() — run.c
     func subscriptKey(_ exprs: [String]) -> String {
         exprs.joined(separator: SUBSEP)
     }

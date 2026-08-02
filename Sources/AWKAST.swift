@@ -179,6 +179,7 @@ extension LValue: Equatable {
 extension Expression {
     /// Wrap in `!= 0` unless already guaranteed boolean.
     /// Corresponds to notnull() in awkgram.y.
+    // C: notnull() — awkgram.y
     func notnull() -> Expression {
         switch self {
         case .equal, .notEqual, .lessThan, .lessEqual, .greaterThan, .greaterEqual,
@@ -191,6 +192,7 @@ extension Expression {
     }
 
     /// Convert an expression to an LValue if it denotes an assignable location.
+    // C: (no direct equivalent; C uses typed Node* pointers directly as lvalues)
     func asLValue() -> LValue? {
         switch self {
         case .variable(let n):       return .variable(n)

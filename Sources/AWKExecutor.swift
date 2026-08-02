@@ -29,6 +29,7 @@ final class AWKExecutor {
     // MARK: - Main entry point
 
     /// Run a parsed AWK program over the provided input files (or stdin if empty).
+    // C: run() + getrec() loop — run.c / lib.c
     func run(_ program: AWKProgram, inputPaths: [String] = [], programArgs: [String] = []) throws {
         // Populate function table
         for fn in program.functions { env.functions[fn.name] = fn }
@@ -115,6 +116,7 @@ final class AWKExecutor {
         try runEndBlocks(program)
     }
 
+    // C: program() END-block handling — run.c
     func runEndBlocks(_ program: AWKProgram) throws {
         inEndBlock = true
         do {
@@ -130,6 +132,7 @@ final class AWKExecutor {
 
     // MARK: - Pattern matching
 
+    // C: pastat() + dopa2() — run.c
     func matchesPattern(_ pattern: PatternKind, ruleIndex: Int) throws -> Bool {
         switch pattern {
         case .always:
@@ -154,6 +157,7 @@ final class AWKExecutor {
 
     // MARK: - LValue resolution (returns the cell itself for mutation)
 
+    // C: field() / array() / indirect() — run.c
     func evalLValue(_ lv: LValue) throws -> AWKCell {
         switch lv {
         case .variable(let name):
@@ -190,6 +194,7 @@ final class AWKExecutor {
 
     // MARK: - Variable / element resolution
 
+    // C: setsymtab() + lookup() — tran.c
     func resolveVar(_ name: String) -> AWKCell {
         // Check built-in variables first
         switch name {
@@ -217,12 +222,14 @@ final class AWKExecutor {
         return env.global(name)
     }
 
+    // C: (no direct equivalent; lazy sync of built-in variable Cell mirrors)
     func syncedBuiltin(_ name: String,
                                get: () -> AWKCell) -> AWKCell {
         if let c = env.globals[name] { return c }
         let c = get(); env.globals[name] = c; return c
     }
 
+    // C: array() — run.c
     func resolveElement(name: String, keys: [Expression]) throws -> AWKCell {
         let parts = try keys.map { try eval($0).getStr(fmt: env.CONVFMT) }
         let key = env.subscriptKey(parts)
@@ -239,6 +246,7 @@ final class AWKExecutor {
     /// A pseudo-cell backed by field slot n.  Changes are written back via setField.
     var fieldCells: [Int: AWKCell] = [:]
 
+    // C: fieldadr() — lib.c
     func makeFieldCell(_ n: Int) -> AWKCell {
         if let existing = fieldCells[n] { return existing }
         let s = env.getField(n)
@@ -248,6 +256,7 @@ final class AWKExecutor {
         return c
     }
 
+    // C: (no direct equivalent; field proxy write-back)
     func flushFieldCells() {
         for (n, c) in fieldCells {
             env.setField(n, c.getStr(fmt: env.CONVFMT))
@@ -257,6 +266,7 @@ final class AWKExecutor {
 
     // MARK: - Assignment
 
+    // C: assign() — run.c
     func execAssign(op: AssignOp, lv: LValue, rhs: Expression) throws -> AWKCell {
         let rhsVal = try eval(rhs)
 
@@ -290,6 +300,7 @@ final class AWKExecutor {
         return target
     }
 
+    // C: assign() operator switch — run.c
     func applyOp(_ op: AssignOp, lhsNum: Double, lhsStr: String, rhs: AWKCell) -> AWKCell {
         switch op {
         case .set:    return rhs
@@ -308,6 +319,7 @@ final class AWKExecutor {
         }
     }
 
+    // C: setfval() / setsval() for special built-in variables — tran.c
     func writeback(name: String, cell: AWKCell) {
         let s = cell.getStr(fmt: env.CONVFMT)
         let n = cell.getNum()
@@ -330,6 +342,7 @@ final class AWKExecutor {
 
     // MARK: - Power helper (matches C ipow for integer exponents)
 
+    // C: ipow() — run.c
     func ipow(_ x: Double, _ exp: Double) -> Double {
         var intPart = 0.0
         if exp >= 0 && modf(exp, &intPart) == 0.0 {
@@ -342,6 +355,7 @@ final class AWKExecutor {
 
     // MARK: - Regex helper (extracts pattern string from an expression)
 
+    // C: (no direct equivalent; extracts pattern string from an expression node)
     func regexPattern(_ e: Expression) throws -> String {
         if case .regexMatch(let s) = e { return s }
         return try eval(e).getStr(fmt: env.CONVFMT)
@@ -349,6 +363,7 @@ final class AWKExecutor {
 
     // MARK: - Print statement
 
+    // C: printstat() — run.c
     func execPrint(kind: PrintKind, args: [Expression], dest: PrintDest?) throws {
         let output: AWKFile
         switch dest {
@@ -376,6 +391,7 @@ final class AWKExecutor {
         }
     }
 
+    // C: printstat() output loop — run.c
     func print_(_ args: [Expression], dest: PrintDest?, to output: AWKFile? = nil) throws {
         let out = output ?? AWKFile(name: "/dev/stdout", mode: .write, handle: .standardOutput)
         if args.isEmpty {
@@ -395,6 +411,7 @@ final class AWKExecutor {
 
     // MARK: - Delete statement
 
+    // C: awkdelete() — run.c
     func execDelete(_ lv: LValue) throws {
         switch lv {
         case .variable(let name):
@@ -411,6 +428,7 @@ final class AWKExecutor {
 
     // MARK: - User-defined function call
 
+    // C: call() — run.c
     func execUserCall(name: String, argExprs: [Expression]) throws -> AWKCell {
         guard let fn = env.functions[name] else {
             throw AWKRuntimeError("calling undefined function '\(name)'")
@@ -444,6 +462,7 @@ final class AWKExecutor {
 
     // MARK: - Builtin function call
 
+    // C: bltin() — run.c
     func execBuiltin(id: AWKBuiltinID, args: [Expression]) throws -> AWKCell {
         switch id {
         case .length:
@@ -526,6 +545,7 @@ final class AWKExecutor {
 
     // MARK: - Getline
 
+    // C: awkgetline() — run.c
     func execGetline(lv: LValue?) throws -> AWKCell {
         // Bare getline — read next record from current input (stdin)
         // For simplicity, read from stdin
@@ -543,6 +563,7 @@ final class AWKExecutor {
         return AWKCell.number(1)
     }
 
+    // C: awkgetline() file-variant — run.c
     func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) throws -> AWKCell {
         guard let line = file.readRecord(rs: env.RS) else { return AWKCell.number(0) }
         if let lv {
@@ -555,6 +576,7 @@ final class AWKExecutor {
         return AWKCell.number(1)
     }
 
+    // C: readrec() — lib.c
     func readln(from fh: FileHandle) -> String? {
         // Inefficient but simple: read byte-by-byte until RS
         var line = ""
@@ -571,6 +593,7 @@ final class AWKExecutor {
 
     // MARK: - String operations
 
+    // C: sub() — run.c
     func execSub(kind: SubKind, reExpr: Expression, replExpr: Expression, target: LValue) throws -> AWKCell {
         let pat = try regexPattern(reExpr)
         let repl = try eval(replExpr).getStr(fmt: env.CONVFMT)
@@ -615,6 +638,7 @@ final class AWKExecutor {
         return AWKCell.number(Double(count))
     }
 
+    // C: substr() — run.c
     func execSubstr(str: Expression, start: Expression, len: Expression?) throws -> AWKCell {
         let s = try eval(str).getStr(fmt: env.CONVFMT)
         let k = s.count
@@ -636,6 +660,7 @@ final class AWKExecutor {
         return AWKCell.string(String(s[startIdx..<endIdx]))
     }
 
+    // C: split() — run.c
     func execSplit(str: Expression, arrName: String, sep: Expression?) throws -> AWKCell {
         let s = try eval(str).getStr(fmt: env.CONVFMT)
         let arr = resolveVar(arrName)

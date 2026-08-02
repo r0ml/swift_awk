@@ -9,6 +9,7 @@
 // MARK: - Entry point
 
 enum AWKParser {
+    // C: yyparse() — awkgram.y
     static func parse(_ tokens: [AWKToken]) throws -> AWKProgram {
         try program().run(on: tokens)
     }
@@ -17,11 +18,13 @@ enum AWKParser {
 // MARK: - Whitespace / separator helpers
 // These correspond to: pst opt_pst nl opt_nl st lbrace rbrace rparen comma
 
+// C: pst / opt_pst — awkgram.y
 private func skipSep() -> Parser<Void> {
     oneOf(token(.newline), token(.semicolon)).many.map { _ in () }
 }
 
 // Statement terminator: nl | ';' opt_nl
+// C: st — awkgram.y
 private func stEnd() -> Parser<Void> {
     oneOf(
         token(.newline).many1.map { _ in () },
@@ -30,22 +33,28 @@ private func stEnd() -> Parser<Void> {
 }
 
 // Tokens that allow optional trailing newlines per the grammar
+// C: lbrace — awkgram.y
 private func lbrace() -> Parser<Void> {
     token(.lbrace).then(token(.newline).many.map { _ in () })
 }
+// C: rbrace — awkgram.y
 private func rbrace() -> Parser<Void> {
     token(.rbrace).then(token(.newline).many.map { _ in () })
 }
+// C: rparen — awkgram.y
 private func rparen_() -> Parser<Void> {
     token(.rparen).then(token(.newline).many.map { _ in () })
 }
+// C: comma — awkgram.y
 private func comma_() -> Parser<Void> {
     token(.comma).then(token(.newline).many.map { _ in () })
 }
+// C: opt_nl — awkgram.y
 private func skipNL() -> Parser<Void> {
     token(.newline).many.map { _ in () }
 }
 
+// C: statement-terminator detection — awkgram.y
 private func isStEnd(_ tok: AWKToken?) -> Bool {
     switch tok {
     case .newline, .semicolon, .rbrace, .eof, nil: return true
@@ -56,6 +65,7 @@ private func isStEnd(_ tok: AWKToken?) -> Bool {
 // MARK: - Top-level program
 // program: pas   where  pas: opt_pst (pa_stat (opt_pst pa_stat)* opt_pst)?
 
+// C: program rule — awkgram.y
 private func program() -> Parser<AWKProgram> {
     Parser { stream in
         try skipSep().parse(&stream)
@@ -94,6 +104,7 @@ private func program() -> Parser<AWKProgram> {
 
 // MARK: - Pattern-action rules
 
+// C: pa_stat — awkgram.y
 private func paStat(
     _ stream: inout TokenStream,
     beginRules: inout [[Statement]],
@@ -141,12 +152,14 @@ private func paStat(
 }
 
 // pa_pat: pattern wrapped in notnull
+// C: pa_pat — awkgram.y
 private func paPat() -> Parser<Expression> {
     pattern().map { $0.notnull() }
 }
 
 // MARK: - Function definitions
 
+// C: funcdef — awkgram.y
 private func parseFunctionDef() -> Parser<FunctionDefinition> {
     Parser { stream in
         let name: String
@@ -172,6 +185,7 @@ private func parseFunctionDef() -> Parser<FunctionDefinition> {
 }
 
 // varlist: (nothing) | VAR (',' VAR)*
+// C: var_list — awkgram.y
 private func varList() -> Parser<[String]> {
     Parser { stream in
         var params: [String] = []
@@ -190,6 +204,7 @@ private func varList() -> Parser<[String]> {
 }
 
 // A block: lbrace stmtlist rbrace
+// C: action — awkgram.y
 private func stmtBlock() -> Parser<[Statement]> {
     between(lbrace(), stmtList(), rbrace())
 }
@@ -197,10 +212,12 @@ private func stmtBlock() -> Parser<[Statement]> {
 // MARK: - Statements
 
 // stmtlist: stmt*  (left-recursive in yacc → iterative here)
+// C: stmtlist — awkgram.y
 private func stmtList() -> Parser<[Statement]> {
     lazy(stmt()).many.map { stmts in stmts.filter { if case .empty = $0 { return false }; return true } }
 }
 
+// C: stmt — awkgram.y
 private func stmt() -> Parser<Statement> {
     Parser { stream in
         try skipSep().parse(&stream)
@@ -239,6 +256,7 @@ private func stmt() -> Parser<Statement> {
 
 // MARK: - Control-flow statements
 
+// C: do-while case in stmt — awkgram.y
 private func parseDoWhile() -> Parser<Statement> {
     Parser { stream in
         guard stream.first == .kwDo else { throw ParseError("Expected 'do'") }
@@ -256,6 +274,7 @@ private func parseDoWhile() -> Parser<Statement> {
     }
 }
 
+// C: exit case in stmt — awkgram.y
 private func parseExit() -> Parser<Statement> {
     Parser { stream in
         guard stream.first == .kwExit else { throw ParseError("Expected 'exit'") }
@@ -266,6 +285,7 @@ private func parseExit() -> Parser<Statement> {
     }
 }
 
+// C: for case in stmt — awkgram.y
 private func parseFor() -> Parser<Statement> {
     Parser { stream in
         guard stream.first == .kwFor else { throw ParseError("Expected 'for'") }
@@ -310,6 +330,7 @@ private func parseFor() -> Parser<Statement> {
     }
 }
 
+// C: if case in stmt — awkgram.y
 private func parseIf() -> Parser<Statement> {
     Parser { stream in
         guard stream.first == .kwIf else { throw ParseError("Expected 'if'") }
@@ -333,6 +354,7 @@ private func parseIf() -> Parser<Statement> {
     }
 }
 
+// C: return case in stmt — awkgram.y
 private func parseReturn() -> Parser<Statement> {
     Parser { stream in
         guard stream.first == .kwReturn else { throw ParseError("Expected 'return'") }

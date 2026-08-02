@@ -21,6 +21,7 @@ struct AWKLexer {
 
     // MARK: - Public entry point
 
+    // C: main scan loop driving yylex() — lex.c
     mutating func tokenize() throws -> [AWKToken] {
         var result: [AWKToken] = []
         var last: AWKToken? = nil
@@ -42,11 +43,13 @@ struct AWKLexer {
     // MARK: - Input primitives
 
     private var atEnd: Bool { pos >= source.count }
+    // C: peek() lookahead — lex.c
     private func cur() -> Character? { atEnd ? nil : source[pos] }
     private func peek(_ n: Int = 1) -> Character? {
         let i = pos + n; return i < source.count ? source[i] : nil
     }
 
+    // C: input() — lex.c
     @discardableResult
     private mutating func eat() -> Character? {
         guard !atEnd else { return nil }
@@ -60,6 +63,7 @@ struct AWKLexer {
     /// Returns true when '/' should start a regex rather than divide.
     /// After a value-producing token (number, identifier, ')', ']', '++', '--')
     /// '/' is division; everywhere else it starts a regex literal.
+    // C: (no direct equivalent; C yylex() uses yylval global state to track context)
     private func isRegexContext(_ last: AWKToken?) -> Bool {
         guard let last else { return true }
         switch last {
@@ -72,6 +76,7 @@ struct AWKLexer {
         }
     }
 
+    // C: (no direct equivalent; used to determine when ; injection before } is safe)
     private func isTerminator(_ tok: AWKToken?) -> Bool {
         guard let tok else { return true }
         switch tok { case .semicolon, .newline: return true; default: return false }
@@ -79,6 +84,7 @@ struct AWKLexer {
 
     // MARK: - Main scanner
 
+    // C: yylex() — lex.c
     private mutating func scan(regexOK: Bool) throws -> AWKToken? {
         while let c = cur() {
             switch c {
@@ -126,6 +132,7 @@ struct AWKLexer {
     // MARK: - Numbers
     // Handles integers, decimals, and scientific notation (e.g. 1.5e+3).
 
+    // C: number scanning in gettok() — lex.c
     private mutating func scanNumber() throws -> AWKToken {
         let start = pos
         if cur() == "." {
@@ -157,6 +164,7 @@ struct AWKLexer {
 
     // MARK: - String literals
 
+    // C: string() — lex.c
     private mutating func scanString() throws -> AWKToken {
         var result = ""
         while let c = cur(), c != "\"" {
@@ -203,6 +211,7 @@ struct AWKLexer {
 
     // MARK: - Regex literals
 
+    // C: regexpr() — lex.c
     private mutating func scanRegex() throws -> AWKToken {
         var result = ""
         while let c = cur(), c != "/" {
@@ -223,6 +232,7 @@ struct AWKLexer {
 
     // MARK: - Identifiers and keywords
 
+    // C: gettok() + word() — lex.c
     private mutating func scanWord() -> AWKToken {
         let start = pos
         while let c = cur(), isLetter(c) || isDigit(c) { eat() }
@@ -230,6 +240,7 @@ struct AWKLexer {
         return resolveKeyword(word, nextIsLParen: cur() == "(")
     }
 
+    // C: binsearch() + word() — lex.c
     private func resolveKeyword(_ w: String, nextIsLParen: Bool) -> AWKToken {
         switch w {
         // Program structure
@@ -288,6 +299,7 @@ struct AWKLexer {
 
     // MARK: - Operators and punctuation
 
+    // C: symbol dispatch in yylex() — lex.c
     private mutating func scanSymbol() throws -> AWKToken {
         guard let c = eat() else { throw LexError("unexpected end of input") }
         switch c {

@@ -21,6 +21,7 @@ final class AWKFile {
     }
 
     // Read the next record delimited by `rs`. Returns nil at EOF.
+    // C: readrec() — lib.c
     func readRecord(rs: String) -> String? {
         // Refill buffer from handle
         func refill() {
@@ -54,11 +55,13 @@ final class AWKFile {
         let record = buffer; buffer = ""; return record
     }
 
+    // C: (direct fwrite/fputs via FILE* in printstat() / redirect() — run.c)
     func write(_ s: String) throws {
         guard let data = s.data(using: .utf8) else { return }
         handle.write(data)
     }
 
+    // C: fclose() / pclose() — run.c
     func close() {
         if let proc = process { proc.terminate(); proc.waitUntilExit() }
         if handle != .standardInput && handle != .standardOutput && handle != .standardError {
