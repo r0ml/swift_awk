@@ -3,55 +3,37 @@
 // Corresponds to run.c from one-true-awk, but operates on the Swift AST
 // (AWKProgram / Statement / Expression) rather than the C Node* tree.
 
-import Foundation
 import CMigration
 
 // MARK: - Call frame
 
-struct CallFrame {
-    let funcName: String
-    let paramNames: [String]   // formal parameter names
-    var cells: [AWKCell]       // one cell per parameter + extra locals
-    var retval: AWKCell = AWKCell()
-}
-
 // MARK: - AWK Executor
 
-final class AWKExecutor {
-    let env: AWKEnvironment
-    var callStack: [CallFrame] = []
-    var inEndBlock = false   // disables donefld update in END
-
-    init(env: AWKEnvironment = AWKEnvironment()) {
-        self.env = env
-    }
+extension awk {
+  struct CallFrame {
+      let funcName: String
+      let paramNames: [String]   // formal parameter names
+      var cells: [Cell]       // one cell per parameter + extra locals
+      var retval: Cell = Cell()
+  }
 
     // MARK: - Main entry point
 
     /// Run a parsed AWK program over the provided input files (or stdin if empty).
     // C: run() + getrec() loop — run.c / lib.c
-    func run(_ program: AWKProgram, inputPaths: [String] = [], programArgs: [String] = []) throws {
+    func run(_ program: AWKProgram, inputPaths: [String] = []) throws {
         // Populate function table
-        for fn in program.functions { env.functions[fn.name] = fn }
+        for fn in program.functions { runtime.functions[fn.name] = fn }
 
         // Set up ARGV / ARGC
-        env.argv = programArgs
-        let argc = programArgs.count
-        let argvCell = AWKCell.newArray()
-        for (i, a) in programArgs.enumerated() {
-            let key = String(i)
-            let cell = AWKRuntime.isNumber(a)
-                ? AWKCell.both(AWKRuntime.parseNum(a), a)
-                : AWKCell.string(a)
-            argvCell.array![key] = cell
-        }
-        env.globals["ARGV"] = argvCell
-        env.globals["ARGC"] = AWKCell.number(Double(argc))
+      let argc = options.args.count + 1
+      var argv : [Cell] = [Cell(string: CommandLine.arguments[0])]
+      for (_, a) in options.args.enumerated() {
+        argv.append(Cell(string: a))
+      }
+      runtime.symtab["ARGV"] = Cell(array: argv, named: "ARGV")
+      runtime.symtab["ARGC"] = Cell(number: argc, named: "ARGC")
 
-        // ENVIRON
-        let envCell = AWKCell.newArray()
-        for (k, v) in env.environ { envCell.array![k] = AWKCell.string(v) }
-        env.globals["ENVIRON"] = envCell
 
         // Range-pattern pairstack
         env.pairstack = Array(repeating: false, count: program.rules.count)
@@ -158,13 +140,13 @@ final class AWKExecutor {
     // MARK: - LValue resolution (returns the cell itself for mutation)
 
     // C: field() / array() / indirect() — run.c
-    func evalLValue(_ lv: LValue) throws -> AWKCell {
+    func evalLValue(_ lv: LValue) throws -> Cell {
         switch lv {
         case .variable(let name):
             return resolveVar(name)
 
         case .argument(let i):
-            guard let frame = callStack.last, i < frame.cells.count else {
+            guard let frame = runtime.callStack.last, i < frame.cells.count else {
                 throw AWKRuntimeError("function argument \(i) out of range")
             }
             return frame.cells[i]
@@ -172,7 +154,7 @@ final class AWKExecutor {
         case .varnf:
             // Assign to NF specially through a proxy cell that triggers setNF on write.
             // For simplicity, we handle NF assignment in execAssign.
-            let c = AWKCell.number(Double(env.NF)); c.hasNum = true; return c
+            let c = Cell(number: Double(env.NF)); return c
 
         case .field(let e):
             // Field lvalue — we can't return a reference to an element of env.fields.
@@ -180,14 +162,14 @@ final class AWKExecutor {
             // We wrap this in a FieldProxy approach: return a cell and post-assign it.
             // This is handled per-case in execAssign and incr/decr.
             // For the incr/decr case, we need the actual stored cell; use a field cell.
-            let n = Int(try eval(e).getNum())
+            let n = Int(try eval(e).getfval())
             return makeFieldCell(n)
 
         case .element(let name, let keys):
             return try resolveElement(name: name, keys: keys)
 
         case .indirect(let e):
-            let n = Int(try eval(e).getNum())
+            let n = Int(try eval(e).getfval())
             return makeFieldCell(n)
         }
     }
@@ -195,26 +177,10 @@ final class AWKExecutor {
     // MARK: - Variable / element resolution
 
     // C: setsymtab() + lookup() — tran.c
-    func resolveVar(_ name: String) -> AWKCell {
+    func resolveVar(_ name: String) -> Cell {
         // Check built-in variables first
-        switch name {
-        case "FS":       return syncedBuiltin(name, get: { AWKCell.string(self.env.FS) })
-        case "RS":       return syncedBuiltin(name, get: { AWKCell.string(self.env.RS) })
-        case "OFS":      return syncedBuiltin(name, get: { AWKCell.string(self.env.OFS) })
-        case "ORS":      return syncedBuiltin(name, get: { AWKCell.string(self.env.ORS) })
-        case "OFMT":     return syncedBuiltin(name, get: { AWKCell.string(self.env.OFMT) })
-        case "CONVFMT":  return syncedBuiltin(name, get: { AWKCell.string(self.env.CONVFMT) })
-        case "NR":       return AWKCell.number(env.NR)
-        case "FNR":      return AWKCell.number(env.FNR)
-        case "NF":       env.ensureFields(); return AWKCell.number(Double(env.NF))
-        case "FILENAME": return AWKCell.string(env.FILENAME)
-        case "SUBSEP":   return AWKCell.string(env.SUBSEP)
-        case "RSTART":   return AWKCell.number(env.RSTART)
-        case "RLENGTH":  return AWKCell.number(env.RLENGTH)
-        default: break
-        }
         // Check current call frame
-        if let frame = callStack.last {
+      if let frame = runtime.callStack.last {
             if let i = frame.paramNames.firstIndex(of: name) {
                 return frame.cells[i]
             }
@@ -224,13 +190,13 @@ final class AWKExecutor {
 
     // C: (no direct equivalent; lazy sync of built-in variable Cell mirrors)
     func syncedBuiltin(_ name: String,
-                               get: () -> AWKCell) -> AWKCell {
+                               get: () -> Cell) -> Cell {
         if let c = env.globals[name] { return c }
         let c = get(); env.globals[name] = c; return c
     }
 
     // C: array() — run.c
-    func resolveElement(name: String, keys: [Expression]) throws -> AWKCell {
+    func resolveElement(name: String, keys: [Expression]) throws -> Cell {
         let parts = try keys.map { try eval($0).getStr(fmt: env.CONVFMT) }
         let key = env.subscriptKey(parts)
         let arr = resolveVar(name)
@@ -247,7 +213,7 @@ final class AWKExecutor {
     var fieldCells: [Int: AWKCell] = [:]
 
     // C: fieldadr() — lib.c
-    func makeFieldCell(_ n: Int) -> AWKCell {
+    func makeFieldCell(_ n: Int) -> Cell {
         if let existing = fieldCells[n] { return existing }
         let s = env.getField(n)
         let c = AWKCell.string(s)
@@ -267,7 +233,7 @@ final class AWKExecutor {
     // MARK: - Assignment
 
     // C: assign() — run.c
-    func execAssign(op: AssignOp, lv: LValue, rhs: Expression) throws -> AWKCell {
+    func execAssign(op: AssignOp, lv: LValue, rhs: Expression) throws -> Cell {
         let rhsVal = try eval(rhs)
 
         // NF assignment requires special handling
@@ -291,7 +257,7 @@ final class AWKExecutor {
         }
 
         let target = try evalLValue(lv)
-        let result = applyOp(op, lhsNum: target.getNum(), lhsStr: target.getStr(fmt: env.CONVFMT), rhs: rhsVal)
+        let result = applyOp(op, lhsNum: target.getNum(), lhsStr: target.getsval(fmt: runtime.CONVFMT), rhs: rhsVal)
 
         // Write back to built-in variables
         if case .variable(let name) = lv { writeback(name: name, cell: result) }
@@ -301,21 +267,21 @@ final class AWKExecutor {
     }
 
     // C: assign() operator switch — run.c
-    func applyOp(_ op: AssignOp, lhsNum: Double, lhsStr: String, rhs: AWKCell) -> AWKCell {
+    func applyOp(_ op: AssignOp, lhsNum: Double, lhsStr: String, rhs: Cell) -> Cell {
         switch op {
         case .set:    return rhs
-        case .addSet: return AWKCell.number(lhsNum + rhs.getNum())
-        case .subSet: return AWKCell.number(lhsNum - rhs.getNum())
-        case .mulSet: return AWKCell.number(lhsNum * rhs.getNum())
+          case .addSet: return Cell(number: lhsNum + rhs.getfval())
+          case .subSet: return Cell(number: lhsNum - rhs.getfval())
+          case .mulSet: return Cell(number: lhsNum * rhs.getfval())
         case .divSet:
-            let d = rhs.getNum()
-            return AWKCell.number(d == 0 ? 0 : lhsNum / d)   // real code throws
+            let d = rhs.getfval()
+            return Cell(number: d == 0 ? 0 : lhsNum / d)   // real code throws
         case .modSet:
-            let d = rhs.getNum()
+            let d = rhs.getfval()
             var i = 0.0; modf(lhsNum / d, &i)
-            return AWKCell.number(lhsNum - d * i)
+            return Cell(number: lhsNum - d * i)
         case .powSet:
-            return AWKCell.number(ipow(lhsNum, rhs.getNum()))
+            return Cell(number: ipow(lhsNum, rhs.getfval()))
         }
     }
 
@@ -429,18 +395,18 @@ final class AWKExecutor {
     // MARK: - User-defined function call
 
     // C: call() — run.c
-    func execUserCall(name: String, argExprs: [Expression]) throws -> AWKCell {
+    func execUserCall(name: String, argExprs: [Expression]) throws -> Cell {
         guard let fn = env.functions[name] else {
             throw AWKRuntimeError("calling undefined function '\(name)'")
         }
         // Evaluate actual arguments
-        var cells: [AWKCell] = []
+        var cells: [Cell] = []
         for argExpr in argExprs {
             let c = try eval(argExpr)
             if c.isArray {
                 cells.append(c)   // arrays: pass by reference
             } else {
-                let copy = AWKCell(); copy.copyScalarFrom(c); cells.append(copy)
+                let copy = Cell(); copy.copyScalarFrom(c); cells.append(copy)
             }
         }
         // Pad with empty cells for any unspecified parameters
@@ -449,21 +415,21 @@ final class AWKExecutor {
         // (one-true-awk uses extra params as local variables)
 
         let frame = CallFrame(funcName: name, paramNames: fn.params, cells: cells)
-        callStack.append(frame)
-        defer { callStack.removeLast() }
+      runtime.callStack.append(frame)
+      defer { runtime.callStack.removeLast() }
 
         do {
             try execBlock(fn.body)
         } catch AWKSignal.return_(let val) {
             return val
         }
-        return callStack.last?.retval ?? AWKCell()
+      return runtime.callStack.last?.retval ?? Cell()
     }
 
     // MARK: - Builtin function call
 
     // C: bltin() — run.c
-    func execBuiltin(id: AWKBuiltinID, args: [Expression]) throws -> AWKCell {
+    func execBuiltin(id: AWKBuiltinID, args: [Expression]) throws -> Cell {
         switch id {
         case .length:
             if args.isEmpty {
@@ -546,7 +512,7 @@ final class AWKExecutor {
     // MARK: - Getline
 
     // C: awkgetline() — run.c
-    func execGetline(lv: LValue?) throws -> AWKCell {
+    func execGetline(lv: LValue?) throws -> Cell {
         // Bare getline — read next record from current input (stdin)
         // For simplicity, read from stdin
         guard let line = readln(from: .standardInput) else {
@@ -564,7 +530,7 @@ final class AWKExecutor {
     }
 
     // C: awkgetline() file-variant — run.c
-    func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) throws -> AWKCell {
+    func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) throws -> Cell {
         guard let line = file.readRecord(rs: env.RS) else { return AWKCell.number(0) }
         if let lv {
             let c = try evalLValue(lv)
@@ -594,7 +560,7 @@ final class AWKExecutor {
     // MARK: - String operations
 
     // C: sub() — run.c
-    func execSub(kind: SubKind, reExpr: Expression, replExpr: Expression, target: LValue) throws -> AWKCell {
+    func execSub(kind: SubKind, reExpr: Expression, replExpr: Expression, target: LValue) throws -> Cell {
         let pat = try regexPattern(reExpr)
         let repl = try eval(replExpr).getStr(fmt: env.CONVFMT)
         let targetCell = try evalLValue(target)
@@ -639,7 +605,7 @@ final class AWKExecutor {
     }
 
     // C: substr() — run.c
-    func execSubstr(str: Expression, start: Expression, len: Expression?) throws -> AWKCell {
+    func execSubstr(str: Expression, start: Expression, len: Expression?) throws -> Cell {
         let s = try eval(str).getStr(fmt: env.CONVFMT)
         let k = s.count
         if k == 0 { return AWKCell.string("") }
@@ -661,7 +627,7 @@ final class AWKExecutor {
     }
 
     // C: split() — run.c
-    func execSplit(str: Expression, arrName: String, sep: Expression?) throws -> AWKCell {
+    func execSplit(str: Expression, arrName: String, sep: Expression?) throws -> Cell {
         let s = try eval(str).getStr(fmt: env.CONVFMT)
         let arr = resolveVar(arrName)
         arr.array = [:]

@@ -61,8 +61,6 @@ extension awk {
    Cell	*ofsloc;	/* OFS */
    Cell	*orsloc;	/* ORS */
    Cell	*rsloc;		/* RS */
-   Array	*ARGVtab;	/* symbol table containing ARGV[...] */
-   Array	*ENVtab;	/* symbol table containing ENVIRON[...] */
    Cell	*rstartloc;	/* RSTART */
    Cell	*rlengthloc;	/* RLENGTH */
    Cell	*subseploc;	/* SUBSEP */
@@ -108,30 +106,15 @@ extension awk {
    av++;
    }
    }
+*/
 
-   void envinit(char **envp)	/* set up ENVIRON variable */
-   {
-   Cell *cp;
-   char *p;
-
-   cp = setsymtab("ENVIRON", "", 0.0, ARR, symtab);
-   ENVtab = makesymtab(NSYMTAB);
-   free(cp->sval);
-   cp->sval = (char *) ENVtab;
-   for ( ; *envp; envp++) {
-   if ((p = strchr(*envp, '=')) == NULL)
-   continue;
-   if( p == *envp ) /* no left hand side name in env string */
-   continue;
-   *p++ = 0;	/* split into two strings at = */
-   if (is_number(p))
-   setsymtab(*envp, p, atof(p), STR|NUM, ENVtab);
-   else
-   setsymtab(*envp, p, 0.0, STR, ENVtab);
-   p[-1] = '=';	/* restore in case env is passed down to a shell */
-   }
+  func envinit() { // set up ENVIRON variable
+    var aa = [String:Cell]()
+    for (k, v) in Environment.getenv() { aa[k]=Cell(string: v, named: k) }
+    runtime.symtab["ENVIRON"] = Cell(dict: aa, named: "ENVIRON")
    }
 
+  /*
    Array *makesymtab(int n)	/* make a new symbol table */
    {
    Array *ap;

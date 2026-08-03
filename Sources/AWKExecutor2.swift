@@ -3,7 +3,7 @@
 
 import CMigration
 
-extension AWKExecutor {
+extension awk {
 
   // MARK: - Statement execution
 
@@ -62,12 +62,13 @@ extension AWKExecutor {
 
       case .forIn(let varName, let arrName, let body):
           let arrCell = resolveVar(arrName)
-          guard let arr = arrCell.array else { return }
+          guard case .dict(let aa) = arrCell.val else { return }
           // Snapshot keys to allow modification during iteration
-          let keys = Array(arr.keys)
+          let keys = Array(aa.keys)
           for key in keys {
-              guard arrCell.array?[key] != nil else { continue }
-              resolveVar(varName).setStr(key)
+              guard aa[key] != nil else { continue }
+              var v = resolveVar(varName)
+              v.setsval(key)
               do { try exec(body) }
               catch AWKSignal.break_ { return }
               catch AWKSignal.continue_ { /* next key */ }
@@ -81,14 +82,14 @@ extension AWKExecutor {
 
       case .exit_(let e):
           if let e {
-              let code = try eval(e).getNum()
+              let code = try eval(e).getfval()
               throw AWKSignal.exit_(Int32(code))
           }
-          throw AWKSignal.exit_(env.exitCode)
+          throw AWKSignal.exit_(runtime.exitCode)
 
       case .return_(let e):
-          let cell = e != nil ? (try eval(e!)) : AWKCell()
-          throw AWKSignal.return_(cell)
+          let cell = e != nil ? (try eval(e!)) : Cell(string: "")
+          throw AWKSignal.`return`(cell)
 
       case .break_:
           throw AWKSignal.break_
@@ -101,39 +102,40 @@ extension AWKExecutor {
   // MARK: - Expression evaluation
 
   // C: execute() — run.c  (arith / relop / boolop / matchop / condexpr / cat / incrdecr / etc.)
-  func eval(_ expr: Expression) throws -> AWKCell {
+  func eval(_ expr: Expression) throws -> Cell {
       switch expr {
 
       // --- Literals ---
       case .number(let n):
-          return AWKCell.number(n)
+          return Cell(number: n)
 
       case .string(let s):
-          return AWKCell.string(s)
+          return Cell(string: s)
 
       case .regexMatch(let pat):
           // Bare /re/ → match against $0
-          let s = env.getField(0)
+          let s = runtime.getField(0)
           let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
-          return AWKCell.number(matched ? 1 : 0)
+          return Cell(number: matched ? 1 : 0)
 
       // --- Variables ---
       case .variable(let name):
           return resolveVar(name)
 
       case .argument(let i):
-          if let frame = callStack.last, i < frame.cells.count { return frame.cells[i] }
+          if let frame = runtime.callStack.last, i < frame.cells.count { return frame.cells[i] }
           throw AWKRuntimeError("function argument \(i) out of range")
 
       case .varnf:
-          env.ensureFields()
-          return AWKCell.number(Double(env.NF))
+          // should be  fldbld()
+          runtime.ensureFields()
+          return runtime.symtab["NF"]!
 
       case .field(let e):
-          let n = Int(try eval(e).getNum())
-          let s = env.getField(n)
-          let c = AWKCell.string(s)
-          if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }
+          let n = Int(try eval(e).getfval())
+          let s = runtime.getField(n)
+          let c = Cell(field: s, at: n)
+//          if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }
           return c
 
       case .element(let name, let keys):
@@ -149,130 +151,138 @@ extension AWKExecutor {
 
       // --- Logical (short-circuit) ---
       case .logicalOr(let a, let b):
-          return AWKCell.number((try eval(a).isTrue || eval(b).isTrue) ? 1 : 0)
+          return Cell(number: (try eval(a).isTrue || eval(b).isTrue) ? 1 : 0)
 
       case .logicalAnd(let a, let b):
-          return AWKCell.number((try eval(a).isTrue && eval(b).isTrue) ? 1 : 0)
+          return Cell(number: (try eval(a).isTrue && eval(b).isTrue) ? 1 : 0)
 
       // --- Comparison ---
       case .equal(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return AWKCell.number(AWKRuntime.compare(x, y, convfmt: env.CONVFMT) == 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) == 0 ? 1 : 0)
 
       case .notEqual(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return AWKCell.number(AWKRuntime.compare(x, y, convfmt: env.CONVFMT) != 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) != 0 ? 1 : 0)
 
       case .lessThan(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return AWKCell.number(AWKRuntime.compare(x, y, convfmt: env.CONVFMT) < 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) < 0 ? 1 : 0)
 
       case .lessEqual(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return AWKCell.number(AWKRuntime.compare(x, y, convfmt: env.CONVFMT) <= 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) <= 0 ? 1 : 0)
 
       case .greaterThan(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return AWKCell.number(AWKRuntime.compare(x, y, convfmt: env.CONVFMT) > 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) > 0 ? 1 : 0)
 
       case .greaterEqual(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return AWKCell.number(AWKRuntime.compare(x, y, convfmt: env.CONVFMT) >= 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) >= 0 ? 1 : 0)
 
       case .patternMatch(let e, let re):
-          let s = try eval(e).getStr(fmt: env.CONVFMT)
+          let s = try eval(e).getsval(fmt: runtime.CONVFMT)
           let pat = try regexPattern(re)
           let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
-          return AWKCell.number(matched ? 1 : 0)
+          return Cell(number: matched ? 1 : 0)
 
       case .patternNotMatch(let e, let re):
-          let s = try eval(e).getStr(fmt: env.CONVFMT)
+          let s = try eval(e).getsval(fmt: runtime.CONVFMT)
           let pat = try regexPattern(re)
           let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
-          return AWKCell.number(matched ? 0 : 1)
+          return Cell(number: matched ? 0 : 1)
 
       case .inArray(let e, let arrName):
-          let key = try eval(e).getStr(fmt: env.CONVFMT)
+          fatalError("unimplmented inArray")
+          /*
+          let key = try eval(e).getsval(fmt: runtime.CONVFMT)
           let arr = resolveVar(arrName)
-          return AWKCell.number(arr.array?[key] != nil ? 1 : 0)
+          return Cell(number: arr.array?[key] != nil ? 1 : 0)
+           */
 
       case .inArrayTuple(let exprs, let arrName):
-          let parts = try exprs.map { try eval($0).getStr(fmt: env.CONVFMT) }
-          let key = env.subscriptKey(parts)
+          fatalError("unimplmented inArrayTuple")
+          /*
+          let parts = try exprs.map { try eval($0).getsval(fmt: runtime.CONVFMT) }
+          let key = runtime.subscriptKey(parts)
           let arr = resolveVar(arrName)
-          return AWKCell.number(arr.array?[key] != nil ? 1 : 0)
+          return Cell(number: arr.array?[key] != nil ? 1 : 0)
+*/
 
       // --- Getline ---
       case .getline(let lv):
           return try execGetline(lv: lv)
 
       case .getlineFrom(let lv, let src):
-          let path = try eval(src).getStr(fmt: env.CONVFMT)
-          let file = try env.fileFor(name: path, mode: .read)
+          let path = try eval(src).getsval(fmt: runtime.CONVFMT)
+          let file = try runtime.fileFor(name: path, mode: .read)
           return try readLineInto(lv: lv, from: file, updates0: true)
 
       case .getlinePipe(let lv, let cmd):
-          let cmdStr = try eval(cmd).getStr(fmt: env.CONVFMT)
-          let file = try env.fileFor(name: cmdStr, mode: .inputPipe)
+          let cmdStr = try eval(cmd).getsval(fmt: runtime.CONVFMT)
+          let file = try runtime.fileFor(name: cmdStr, mode: .inputPipe)
           return try readLineInto(lv: lv, from: file, updates0: false)
 
       // --- Arithmetic ---
       case .concat(let a, let b):
-          let sa = try eval(a).getStr(fmt: env.CONVFMT)
-          let sb = try eval(b).getStr(fmt: env.CONVFMT)
-          return AWKCell.string(sa + sb)
+          let sa = try eval(a).getsval(fmt: runtime.CONVFMT)
+          let sb = try eval(b).getsval(fmt: runtime.CONVFMT)
+          return Cell(string: sa + sb)
 
       case .add(let a, let b):
-          return AWKCell.number(try eval(a).getNum() + eval(b).getNum())
+          return Cell(number: try eval(a).getfval() + eval(b).getfval())
 
       case .subtract(let a, let b):
-          return AWKCell.number(try eval(a).getNum() - eval(b).getNum())
+          return Cell(number: try eval(a).getfval() - eval(b).getfval())
 
       case .multiply(let a, let b):
-          return AWKCell.number(try eval(a).getNum() * eval(b).getNum())
+          return Cell(number: try eval(a).getfval() * eval(b).getfval())
 
       case .divide(let a, let b):
-          let denom = try eval(b).getNum()
+          let denom = try eval(b).getfval()
           if denom == 0 { throw AWKRuntimeError("division by zero") }
-          return AWKCell.number(try eval(a).getNum() / denom)
+          return Cell(number: try eval(a).getfval() / denom)
 
       case .modulo(let a, let b):
-          let denom = try eval(b).getNum()
+          let denom = try eval(b).getfval()
           if denom == 0 { throw AWKRuntimeError("division by zero in mod") }
-          let num = try eval(a).getNum()
+          let num = try eval(a).getfval()
           var intPart = 0.0; modf(num / denom, &intPart)
-          return AWKCell.number(num - denom * intPart)
+          return Cell(number: num - denom * intPart)
 
       case .power(let a, let b):
-          let base = try eval(a).getNum()
-          let exp  = try eval(b).getNum()
-          return AWKCell.number(ipow(base, exp))
+          let base = try eval(a).getfval()
+          let exp  = try eval(b).getfval()
+          return Cell(number: ipow(base, exp))
 
       case .negate(let e):
-          return AWKCell.number(-(try eval(e).getNum()))
+          return Cell(number: -(try eval(e).getfval()))
 
       case .unaryPlus(let e):
-          return AWKCell.number(try eval(e).getNum())
+          return Cell(number: try eval(e).getfval())
 
       case .logicalNot(let e):
-          return AWKCell.number(try eval(e).isTrue ? 0 : 1)
+          return Cell(number: try eval(e).isTrue ? 0 : 1)
 
       // --- Increment / decrement ---
       case .preIncrement(let lv):
-          let c = try evalLValue(lv); c.setNum(c.getNum() + 1); return c
+          var c = try evalLValue(lv); c.setfval(c.getfval() + 1);
+          return c
 
       case .preDecrement(let lv):
-          let c = try evalLValue(lv); c.setNum(c.getNum() - 1); return c
+          var c = try evalLValue(lv); c.setfval(c.getfval() - 1);
+          return c
 
       case .postIncrement(let lv):
-          let c = try evalLValue(lv)
-          let old = c.getNum(); c.setNum(old + 1)
-          return AWKCell.number(old)
+          var c = try evalLValue(lv)
+          let old = c.getfval(); c.setfval(old + 1)
+          return Cell(number: old)
 
       case .postDecrement(let lv):
-          let c = try evalLValue(lv)
-          let old = c.getNum(); c.setNum(old - 1)
-          return AWKCell.number(old)
+          var c = try evalLValue(lv)
+          let old = c.getfval(); c.setfval(old - 1)
+          return Cell(number: old)
 
       // --- User-defined function call ---
       case .userCall(let name, let args):
@@ -284,9 +294,9 @@ extension AWKExecutor {
 
       // --- String operations ---
       case .sprintfExpr(let args):
-          guard !args.isEmpty else { return AWKCell.string("") }
-          let fmtStr = try eval(args[0]).getStr(fmt: env.CONVFMT)
-          return AWKCell.string(try format(fmtStr, args: Array(args.dropFirst())))
+          guard !args.isEmpty else { return Cell(string: "") }
+          let fmtStr = try eval(args[0]).getsval(fmt: runtime.CONVFMT)
+          return Cell(string: try format(fmtStr, args: Array(args.dropFirst())))
 
       case .subExpr(let kind, let reExpr, let replExpr, let target):
           return try execSub(kind: kind, reExpr: reExpr, replExpr: replExpr, target: target)
@@ -298,42 +308,39 @@ extension AWKExecutor {
           return try execSplit(str: str, arrName: arrName, sep: sep)
 
       case .indexExpr(let hay, let needle):
-          let h = try eval(hay).getStr(fmt: env.CONVFMT)
-          let n = try eval(needle).getStr(fmt: env.CONVFMT)
-          if n.isEmpty { return AWKCell.number(0) }
+          let h = try eval(hay).getsval(fmt: runtime.CONVFMT)
+          let n = try eval(needle).getsval(fmt: runtime.CONVFMT)
+          if n.isEmpty { return Cell(number: 0) }
           if let r = h.range(of: n) {
               let off = h.distance(from: h.startIndex, to: r.lowerBound)
-              return AWKCell.number(Double(off + 1))   // 1-based
+            return Cell(number: Double(off + 1))   // 1-based
           }
-          return AWKCell.number(0)
+          return Cell(number: 0)
 
       case .matchFuncExpr(let str, let reExpr):
-          let s = try eval(str).getStr(fmt: env.CONVFMT)
+          let s = try eval(str).getsval(fmt: runtime.CONVFMT)
           let pat = try regexPattern(reExpr)
           if let (_, nsRange) = try AWKRuntime.pmatch(pattern: pat, in: s) {
-              let start = Double(nsRange.location + 1)
-              let len   = Double(nsRange.length)
-              env.RSTART  = start
-              env.RLENGTH = len
-              env.globals["RSTART"]?.setNum(start)  ?? { env.globals["RSTART"]  = AWKCell.number(start) }()
-              env.globals["RLENGTH"]?.setNum(len)   ?? { env.globals["RLENGTH"] = AWKCell.number(len) }()
-              return AWKCell.number(start)
+            let start = Double(nsRange.location + 1)
+            let len   = Double(nsRange.length)
+            runtime.RSTART  = start
+            runtime.RLENGTH = len
+            return Cell(number: start)
           }
-          env.RSTART = 0; env.RLENGTH = -1
-          env.globals["RSTART"]  = AWKCell.number(0)
-          env.globals["RLENGTH"] = AWKCell.number(-1)
-          return AWKCell.number(0)
+          runtime.RSTART = 0
+          runtime.RLENGTH = -1
+          return Cell(number: 0)
 
       case .closeExpr(let e):
-          let name = try eval(e).getStr(fmt: env.CONVFMT)
-          env.closeFile(name: name)
-          return AWKCell.number(0)
+          let name = try eval(e).getsval(fmt: runtime.CONVFMT)
+          runtime.closeFile(name: name)
+          return Cell(number: 0)
 
       case .indirect(let e):
           // @expr or $$n — treat as field
-          let n = Int(try eval(e).getNum())
-          let s = env.getField(n)
-          return AWKCell.string(s)
+          let n = Int(try eval(e).getfval())
+          let s = runtime.getField(n)
+          return Cell(string: s)
       }
   }
 
@@ -359,14 +366,14 @@ extension AWKExecutor {
           }
           // width (* or digits)
           if i < fmt.endIndex && fmt[i] == "*" {
-              if argIdx < args.count { spec += String(Int(try eval(args[argIdx]).getNum())); argIdx += 1 }
+              if argIdx < args.count { spec += String(Int(try eval(args[argIdx]).getfval())); argIdx += 1 }
               fmt.formIndex(after: &i)
           } else { while i < fmt.endIndex && fmt[i] >= "0" && fmt[i] <= "9" { spec.append(fmt[i]); fmt.formIndex(after: &i) } }
           // precision
           if i < fmt.endIndex && fmt[i] == "." {
               spec.append("."); fmt.formIndex(after: &i)
               if i < fmt.endIndex && fmt[i] == "*" {
-                  if argIdx < args.count { spec += String(Int(try eval(args[argIdx]).getNum())); argIdx += 1 }
+                if argIdx < args.count { spec += String(Int(try eval(args[argIdx]).getfval())); argIdx += 1 }
                   fmt.formIndex(after: &i)
               } else { while i < fmt.endIndex && fmt[i] >= "0" && fmt[i] <= "9" { spec.append(fmt[i]); fmt.formIndex(after: &i) } }
           }
@@ -375,30 +382,30 @@ extension AWKExecutor {
           guard i < fmt.endIndex else { break }
           let type = fmt[i]; fmt.formIndex(after: &i)
 
-          let arg: AWKCell = argIdx < args.count ? (try eval(args[argIdx])) : AWKCell()
+        let arg: Cell = argIdx < args.count ? (try eval(args[argIdx])) : Cell(string: "")
           argIdx += 1
 
           switch type {
           case "d", "i":
-              result += String(format: spec + "d", Int64(bitPattern: UInt64(arg.getNum())))
-          case "o": result += String(format: spec + "o", UInt64(arg.getNum()))
-          case "x": result += String(format: spec + "x", UInt64(arg.getNum()))
-          case "X": result += String(format: spec + "X", UInt64(arg.getNum()))
-          case "u": result += String(format: spec + "u", UInt64(arg.getNum()))
-          case "e": result += String(format: spec + "e", arg.getNum())
-          case "E": result += String(format: spec + "E", arg.getNum())
-          case "f": result += String(format: spec + "f", arg.getNum())
-          case "g": result += String(format: spec + "g", arg.getNum())
-          case "G": result += String(format: spec + "G", arg.getNum())
-          case "a": result += String(format: spec + "a", arg.getNum())
-          case "A": result += String(format: spec + "A", arg.getNum())
-          case "s": result += String(format: spec + "s", arg.getStr(fmt: env.OFMT))
+              result += String(format: spec + "d", Int64(bitPattern: UInt64(arg.getfval())))
+          case "o": result += String(format: spec + "o", UInt64(arg.getfval()))
+          case "x": result += String(format: spec + "x", UInt64(arg.getfval()))
+          case "X": result += String(format: spec + "X", UInt64(arg.getfval()))
+          case "u": result += String(format: spec + "u", UInt64(arg.getfval()))
+          case "e": result += String(format: spec + "e", arg.getfval())
+          case "E": result += String(format: spec + "E", arg.getfval())
+          case "f": result += String(format: spec + "f", arg.getfval())
+          case "g": result += String(format: spec + "g", arg.getfval())
+          case "G": result += String(format: spec + "G", arg.getfval())
+          case "a": result += String(format: spec + "a", arg.getfval())
+          case "A": result += String(format: spec + "A", arg.getfval())
+          case "s": result += String(format: spec + "s", arg.getsval(fmt: runtime.OFMT))
           case "c":
               if arg.hasNum {
-                  let n = Int(arg.getNum()) & 0xFF
+                  let n = Int(arg.getfval()) & 0xFF
                   if n != 0 { result += String(format: spec + "c", n) }
               } else {
-                  let s = arg.getStr(fmt: env.CONVFMT)
+                  let s = arg.getsval(fmt: runtime.CONVFMT)
                   result += String(format: spec + "c", s.first.flatMap { $0.asciiValue }.map(Int.init) ?? 0)
               }
           default: result.append(type)

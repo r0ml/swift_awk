@@ -55,10 +55,36 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
     var yyin : FileDescriptor?
     var srand_seed : UInt32 = 1
     var inputFS : String = " "
-    var lineno : Int = 0    /* line number in awk program */
-    var errorflag = false  /* 1 if error has occurred */
-    var donefld = false  /* true if record broken into fields */
-    var donerec = true  /* true if record is valid (no fld has changed */
+    var lineno : Int = 0    // line number in awk program 
+    var errorflag = false  // 1 if error has occurred
+    var donefld = false  // true if record broken into fields
+    var donerec = true  // true if record is valid (no fld has changed
+    var ARGVtab : [Cell] = [] // symbol table containing ARGV[...]
+    var ENVtab : [String : Cell] = [:] // symbol table containing ENVIRON[...]
+    var callStack: [CallFrame] = []
+    var inEndBlock = false   // disables donefld update in END
+
+
+    // MARK: Function registry (populated before execution)
+    var functions: [String: FunctionDefinition] = [:]
+
+
+    var FS : String = " "
+    var RS : String = "\n"
+    var OFS : String = " "
+    var ORS : String = "\n"
+    var OFMT : String = "%.6g"
+    var CONVFMT : String = "%.6g"
+    var FILENAME : String = ""
+    var NF : Double = 0.0
+    var NR : Double = 0.0
+    var FNR : Double = 0
+    var SUBSEP : String = "\u{1C}"
+    var RSTART : Double = 0
+    var RLENGTH : Double = 0
+
+    var exitCode: Int32 = 0
+
   }
 
   var runtime = RuntimeVars()
@@ -89,7 +115,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
      } else {
      */
     var options = CommandOptions()
-    let go = BSDGetopt("s::f:F:v:")
+    let go = BSDGetopt("s::f:F:v:d::")
   loop:
     while let (k,v) = try go.getopt() {
       switch k {
@@ -222,11 +248,10 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 */
 
         // Step 3: Execute
-        let executor = AWKExecutor()
         // From files:
-      try executor.run(ast, inputPaths: options.args, programArgs: ["awk", "data.txt"])
+      try run(ast, inputPaths: options.args)
         // From stdin (no inputPaths):
-        try executor.run(ast, inputPaths: [], programArgs: ["awk"])
+//        try run(ast, inputPaths: [], programArgs: ["awk"])
 
 
       // FIXME: put me back

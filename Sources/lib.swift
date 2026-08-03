@@ -109,7 +109,7 @@ extension awk {
     * a new value is assigned to $0.
     */
   func savefs() {
-    runtime.inputFS = runtime.symtab["FS"]!.sval
+    runtime.inputFS = runtime.symtab["FS"]!.getsval()
   }
 
   /*
@@ -295,30 +295,21 @@ extension awk {
     let k = ss.split(separator: "=")
     let p = String(k[1])
     let s = String(k[0])
-
-    setsymtab(s, p, 0.0, .STR)
-    // FIXME: this wont save the setting... need to combine with setsymtab
-    runtime.symtab[s]?.sval = p
-    if let gg = Double(p) {
-      runtime.symtab[s]?.fval = gg
-      runtime.symtab[s]?.tval.insert(.NUM)
-    }
+    runtime.symtab[s] = Cell(string: p, named: s)
     DPRINTF("command line set \(s) to |\(p)|\n")
   }
-
 
   func cleanfld(_ n1 : Int, _ n2 : Int)	{ // clean out fields n1 .. n2 inclusive
                                           // nvals remain intact
     for i in n1 ..< n2 {
-      var p = runtime.fldtab[i];
-      p.sval = ""
-      p.tval = [.FLD, .STR, .DONTFREE]
+      runtime.fldtab[i].val = .fld("", i)
     }
   }
 
   func newfld(_ n : Int) { // add field n after end of existing lastfld
     while runtime.fldtab.count <= n {
-      let k = Cell(ctype: .OCELL, csub: .CFLD, nval: String(runtime.fldtab.count), tval: [.FLD, .STR, .DONTFREE])
+//      let k = Cell(ctype: .OCELL, csub: .CFLD, nval: String(runtime.fldtab.count), tval: [.FLD, .STR, .DONTFREE])
+      let k = Cell(field: "", at: runtime.fldtab.count)
       runtime.fldtab.append(k)
     }
    }
@@ -398,14 +389,14 @@ extension awk {
 
   
   func recbld()	{ // create $0 from $1..$NF if necessary
-    let sep = runtime.symtab["OFS"]!.sval
+    let sep = runtime.symtab["OFS"]!.getsval()
 
     if runtime.donerec {
       return;
     }
     var r = ""
     for i in 1 ..< runtime.fldtab.count {
-      let p = getsval(&runtime.fldtab[i]);
+      let p = runtime.fldtab[i].getsval()
 //      if (!adjbuf(&record, &recsize, 1+strlen(p)+r-record, recsize, &r, "recbld 1")) {
 //        FATAL("created $0 `%\(runtime.record.prefix(30))...' too long")
 //      }
@@ -424,11 +415,10 @@ extension awk {
 
     runtime.record = r
     
-    runtime.fldtab[0].tval = [.REC, .STR, .DONTFREE]
-    runtime.fldtab[0].sval = r
+    runtime.fldtab[0].val = .rec(r)
 
     DPRINTF("in recbld inputFS=\(runtime.inputFS)\n")
-    DPRINTF("recbld = |\(runtime.record)|\n")
+    DPRINTF("recbld = |\(r)|\n")
     runtime.donerec = true;
   }
 

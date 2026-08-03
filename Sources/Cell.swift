@@ -1,6 +1,7 @@
 // Copyright (c) 1868 Charles Babbage
 // Modernized by Robert "r0ml" Lefkowitz <code@liberally.net> in 2026
 
+import CMigration
 
 /* Cell:  all information about a variable or constant */
 
@@ -51,81 +52,235 @@ struct Tval : OptionSet {
   static let CONVO = Tval(rawValue: 512) // string was converted from number via OFMT
 }
 
+  enum CellValue {
+    case sval(String)
+    case fval(Awkfloat)
+    case arr([Cell])
+    case dict([String:Cell])
+    case rec(String)
+    case fld(String, Int)
+    case fcn([Node])
+    case builtinString(()->String, (String)->())
+    case builtinNumber(()->Double, (Double)->())
+  }
+
+  enum NodeValue {
+    case op([Node])
+    case const(Cell)
+  }
+
+  struct Node {
+    var ntype : Int
+    var lineno : Int
+    var nobj : Int
+    var narg : NodeValue
+  }
 
   struct Cell {
-    var ctype : Ctype    // OCELL, OBOOL, OJUMP, etc.
-    var csub : Subtype    // CCON, CTEMP, CFLD, etc.
-    var nval : String   // name, for variables only
-    var sval : String = ""   // string value
-    var fval : Awkfloat = 0 // value as number
-    var tval : Tval   // type info: STR|NUM|ARR|FCN|FLD|CON|DONTFREE|CONVC|CONVO
+//    var ctype : Ctype    // OCELL, OBOOL, OJUMP, etc.
+//    var csub : Subtype    // CCON, CTEMP, CFLD, etc.
+    var nval : String?   // name, for variables only
+    var val : CellValue
+
+    //    var sval : String = ""   // string value
+    //    var fval : Awkfloat = 0 // value as number
+    //    var tval : Tval   // type info: STR|NUM|ARR|FCN|FLD|CON|DONTFREE|CONVC|CONVO
     var fmt : String?  // CONVFMT/OFMT value used to convert from number
 
-    var isarr : Bool { return tval.contains(.ARR) }
-    var isrec : Bool { return tval.contains(.REC) }
-    var isfld : Bool { return tval.contains(.FLD) }
-    var isnum : Bool { return tval.contains(.NUM) }
-    var isstr : Bool { return tval.contains(.STR) }
+    var isarr : Bool { return if case .arr = val { true } else { false } }
+    var isrec : Bool { return if case .rec = val { true } else { false } }
+    var isfld : Bool { return if case .fld = val { true } else { false } }
+    var isnum : Bool { return if case .fval = val { true } else { false } }
+    var isstr : Bool { return if case .sval = val { true } else if case .rec = val { true } else if case .fld = val { true } else { false } }
+    var isfcn : Bool { return if case .fcn = val { true } else { false } }
+    var iddict : Bool { return if case .dict = val { true } else { false } }
+
+    /*
+
+     // MARK: - AWK Cell (runtime value)
+
+     /// Mutable AWK value — corresponds to Cell in awk.h.
+     /// Reference type so that arrays are shared and function arguments can be
+     /// passed by reference (arrays) vs. by value (scalars, which are copied on call).
+     final class AWKCell {
+     var numVal: Double = 0.0
+     var strVal: String = ""
+     var hasNum: Bool = false
+     var hasStr: Bool = false
+     var isConst: Bool = false
+     var array: [String: AWKCell]? = nil
+
+     var isArray: Bool { array != nil }
+     */
+
+    // C: gettemp() + setfval() — run.c / tran.c
+    init(number: Double, named: String? = nil) {
+      self.val = .fval(number)
+      if let named { self.nval = named }
+    }
+
+    init(number: Int, named: String? = nil) {
+      self.val = .fval(Double(number))
+      if let named { self.nval = named }
+    }
+
+    // C: gettemp() + setsval() — run.c / tran.c
+    init(string: String, named: String? = nil) {
+      self.val = .sval(string)
+      if let named { self.nval = named }
+    }
+
+    init(field: String, at: Int) {
+      self.val = .fld(field, at)
+    }
+    // C: (no direct equivalent; used when both numeric and string values are already known)
+/*    static func both(_ n: Double, _ s: String) -> AWKCell {
+      let c = AWKCell()
+      c.numVal = n + 0; c.strVal = s; c.hasNum = true; c.hasStr = true
+      return c
   }
+ */
+    // C: (no direct equivalent; array cell allocation in tran.c)
+    init(array: [Cell], named: String? = nil) {
+      val = .arr(array)
+      if let named { self.nval = named }
+    }
+
+    init(dict: [String:Cell], named: String? = nil) {
+      val = .dict(dict)
+      if let named { self.nval = named }
+    }
+
+    init(builtinString: String, _ getter: @escaping ()->String, _ setter: @escaping (String)->() ) {
+      val = .builtinString(getter, setter)
+      self.nval = builtinString
+    }
+
+    init(builtinNumber: String, _ getter: @escaping ()->Double, _ setter: @escaping (Double)->() ) {
+      val = .builtinNumber(getter, setter)
+      self.nval = builtinNumber
+    }
+
+    var hasNum : Bool {
+      switch val {
+        case .fval: return true
+        case .sval(let s): return Double(s.trimmed()) != nil
+        case .builtinNumber: return true
+        case .builtinString(let g, _): let s = g(); return Double(s.trimmed()) != nil
+        case .fld(let s, _): return Double(s.trimmed()) != nil
+        default: return false
+      }
+    }
+
+    // Get numeric value; lazily parses string if no numeric value is cached.
+    // C: getfval() — tran.c
+    func getfval() -> Double {
+      switch val {
+        case .fval(let d): return d
+        case .sval(let s): return Double(s.trimmed()) ?? 0
+        case .builtinNumber(let g, _): return g()
+        case .builtinString(let g, _):
+          return Double(g().trimmed()) ?? 0
+        case .fld(let s, _):
+          return Double(s.trimmed()) ?? 0
+        default: return 0
+      }
+    }
+
+    // Get string value using the supplied format (CONVFMT or OFMT).
+    // C: getsval() — tran.c
+    func getsval(fmt: String = "%.6g") -> String {
+      switch val {
+        case .sval(let s): return s
+        case .fval(let d): return cFormat(fmt, d)
+        case .builtinString(let g,_): return g()
+        case .builtinNumber(let g, _): return cFormat(fmt, g())
+        case .fld(let s, _): return s
+        default: return ""
+      }
+    }
+
+    // Assign a numeric value (invalidates the cached string).
+    // C: setfval() — tran.c
+    mutating func setfval(_ n: Double) {
+      val = .fval(n)
+    }
+
+    // Assign a string value (invalidates the cached numeric value).
+    // C: setsval() — tran.c
+    mutating func setsval(_ s: String) {
+      val = .sval(s)
+    }
+
+    // Assign both numeric and string simultaneously (e.g. after a getline).
+    // C: setsval() + setfval() combined — tran.c
+/*    func setBoth(_ n: Double, _ s: String) {
+      numVal = n + 0; strVal = s; hasNum = true; hasStr = true
+    }
+*/
+
+    // Copy scalar state from another cell (does NOT deep-copy arrays).
+    // C: copycell() — run.c
+    mutating func copycell(_ other: Cell) {
+      val = other.val
+    }
+
+    /// AWK truth: non-zero number, or non-empty string that isn't "0".
+    // C: truth-value test in boolop() / relop() — run.c
+    var isTrue: Bool {
+      switch val {
+        case .fval(let n): return n != 0
+        case .sval(let s): return !s.isEmpty && s != "0"
+        case .fld(let s, _):  return !s.isEmpty && s != "0"
+        case .builtinString(let g, _): let s = g(); return !s.isEmpty && s != "0"
+        case .builtinNumber(let g, _): let n = g(); return n != 0
+        default: return false
+      }
+    }
+  }
+
+
+
+
+
+
 
   func syminit() { // initialize symbol table with builtin vars
 
     // literal0 =
-    setsymtab("0", "0", 0.0, [.NUM, .STR, .CON, .DONTFREE])
+//    setsymtab("0", "0", 0.0, [.NUM, .STR, .CON, .DONTFREE])
     /* this is used for if(x)... tests: */
     // nullloc =
-    setsymtab("$zero&null", "", 0.0, [.NUM, .STR, .CON, .DONTFREE])
+//    setsymtab("$zero&null", "", 0.0, [.NUM, .STR, .CON, .DONTFREE])
 
     // FIXME: need to set nullnode at some point
     // nullnode = celltonode(nullloc, CCON);
 
     // fsloc =
-    setsymtab("FS", " ", 0.0, [.STR, .DONTFREE])
-    // FS = &fsloc->sval;
-    // rsloc =
-    setsymtab("RS", "\n", 0.0, [.STR, .DONTFREE])
-    // RS = &rsloc->sval;
-    // ofsloc =
-    setsymtab("OFS", " ", 0.0, [.STR, .DONTFREE])
-    // OFS = &ofsloc->sval;
-    // orsloc =
-    setsymtab("ORS", "\n", 0.0, [.STR, .DONTFREE])
-    //   ORS = &orsloc->sval;
-    // OFMT = &
-    setsymtab("OFMT", "%.6g", 0.0, [.STR, .DONTFREE])
-    // ->sval;
-    // CONVFMT = &
-    setsymtab("CONVFMT", "%.6g", 0.0, [.STR, .DONTFREE]) // ->sval;
-    // FILENAME = &
-    setsymtab("FILENAME", "", 0.0, [.STR, .DONTFREE]) // ->sval;
-    // nfloc =
-    setsymtab("NF", "", 0.0, .NUM)
-    // NF = &nfloc->fval;
-    // nrloc =
-    setsymtab("NR", "", 0.0, .NUM)
-    // NR = &nrloc->fval;
-    // fnrloc =
-    setsymtab("FNR", "", 0.0, [.NUM])
-    // FNR = &fnrloc->fval;
-    // subseploc =
-    setsymtab("SUBSEP", "\034", 0.0, [.STR, .DONTFREE])
-    // SUBSEP = &subseploc->sval;
-    // rstartloc =
-    setsymtab("RSTART", "", 0.0, [.NUM])
-    // RSTART = &rstartloc->fval;
-    // rlengthloc =
-    setsymtab("RLENGTH", "", 0.0, [.NUM])
-    // RLENGTH = &rlengthloc->fval;
-    // symtabloc =
+    runtime.symtab["FS"]=Cell(builtinString: "FS", { runtime.FS }, { runtime.FS = $0 } )
+    runtime.symtab["RS"]=Cell(builtinString: "RS", { runtime.RS }, { runtime.RS = $0 } )
+    runtime.symtab["OFS"]=Cell(builtinString: "OFS", { runtime.OFS }, { runtime.OFS = $0 } )
+    runtime.symtab["ORS"]=Cell(builtinString: "ORS", { runtime.ORS }, { runtime.ORS = $0 } )
+    runtime.symtab["OFMT"]=Cell(builtinString: "OFMT", { runtime.OFMT }, { runtime.OFMT = $0 } )
+    runtime.symtab["CONVFMT"]=Cell(builtinString: "CONVFMT", { runtime.CONVFMT }, { runtime.CONVFMT = $0 } )
+    runtime.symtab["FILENAME"]=Cell(builtinString: "FILENAME", { runtime.FILENAME }, { runtime.FILENAME = $0 } )
+    runtime.symtab["NF"]=Cell(builtinNumber: "NF", { runtime.NF }, { runtime.NF = $0 } )
+    runtime.symtab["NR"]=Cell(builtinNumber: "NR", { runtime.NR }, { runtime.NR = $0 } )
+    runtime.symtab["FNR"]=Cell(builtinNumber: "FNR", { runtime.FNR }, { runtime.FNR = $0 } )
+    runtime.symtab["SUBSEP"]=Cell(builtinString: "SUBSEP", { runtime.SUBSEP }, { runtime.SUBSEP = $0 } )
+    runtime.symtab["RSTART"]=Cell(builtinNumber: "RSTART", { runtime.RSTART }, { runtime.RSTART = $0 } )
+    runtime.symtab["RLENGTH"]=Cell(builtinNumber: "RLENGTH", { runtime.RLENGTH }, { runtime.RLENGTH = $0 } )
+
     // FIXME: is this really necessary?
-    setsymtab("SYMTAB", "", 0.0, [.ARR])
+    runtime.symtab["SYMTAB"]=Cell(dict: runtime.symtab, named: "SYMTAB")
+//    setsymtab("SYMTAB", "", 0.0, [.ARR])
     // free(symtabloc->sval);
     // symtabloc->sval = (char *) symtab;
   }
 
 
 
-
+/*
   func setsymtab(_ n : String, _ s : String, _ f : Awkfloat, _ t : Tval) {
     if let _ = runtime.symtab[n] {
       DPRINTF("setsymtab found: n=\(n) s=\"\(s)\" f=\(f) t=\(t)\n")
@@ -138,7 +293,9 @@ struct Tval : OptionSet {
     return
 //    return p
   }
-
+*/
+  
+  /*
   func funnyvar(_ vp : Cell, _ rw : String) {
     if vp.isarr {
       FATAL("can't \(rw) \(vp.nval); it's an array name.")
@@ -194,8 +351,10 @@ struct Tval : OptionSet {
 
     return vp.sval
   }
+   */
 
-  func getfval(_ vp : inout Cell) -> Awkfloat { // get float val of a Cell */
+  /*
+  func getfval(_ vp : inout Cell) -> Awkfloat { // get float val of a Cell 
     if !vp.tval.containsAny(of: [.NUM, .STR]) {
       funnyvar(vp, "read value of");
     }
@@ -228,8 +387,9 @@ struct Tval : OptionSet {
     vp.tval.subtract(.DONTFREE)
     vp.tval.insert(.STR)
   }
+*/
 
-
+/*
   func get_str_val(_ vp : inout Cell, _ fmt : Cell) -> String { // get string val of a Cell
     if !vp.tval.containsAny(of: [.NUM, .STR]) {
       funnyvar(vp, "read value of");
@@ -302,14 +462,16 @@ struct Tval : OptionSet {
       }
     }
 // done:
-    DPRINTF("getsval: \(vp.nval) = \"\(vp.sval)\", t=\(vp.tval)\n")
+    DPRINTF("getsval: \(vp.nval) = \"\(vp.val)\"\n")
     return vp.sval
   }
+*/
 
-  func getsval(_ vp : inout Cell) -> String { // get string val of a Cell */
+  /*
+  func getsval(_ vp : inout Cell) -> String { // get string val of a Cell
     return get_str_val(&vp, runtime.symtab["CONVFMT"]!)
   }
-
+*/
 
 
 
@@ -433,20 +595,16 @@ struct Tval : OptionSet {
     if runtime.donefld {
       return;
     }
-    // FIXME: this looks like it alters the fldtab Cell
-    if runtime.fldtab[0].isstr {
-      getsval(&runtime.fldtab[0]);
-    }
 
-    var r = Substring(runtime.fldtab[0].sval)
+    var r = Substring(runtime.fldtab[0].getsval())
     let n = r.count
 
 //    fr = fields;
 
     var i = 0;  /* number of fields accumulated here */
-    if runtime.inputFS == nil { // make sure we have a copy of FS
+//    if runtime.inputFS == nil { // make sure we have a copy of FS
       savefs()
-    }
+//    }
     if runtime.inputFS.count > 1 {  /* it's a regular expression */
       let i = refldbld(String(r), runtime.inputFS)
     } else {
@@ -464,9 +622,8 @@ struct Tval : OptionSet {
             newfld(i)
             // growfldtab(i);
           }
-          runtime.fldtab[i].tval = [.FLD, .STR, .DONTFREE]
-          let fr = r.prefix { $0 != " " && $0 != "\t" && $0 != "\n" && $0 != "\0" }
-          runtime.fldtab[i].sval = String(fr)
+          let fr = r.prefix {c in let k = String(c); return k != " " && k != "\t" && k != "\n" && k != "\0" }
+          runtime.fldtab[i] = Cell(field: String(fr), at: i)
           r = r.dropFirst(fr.count)
         }
       }
@@ -498,7 +655,7 @@ struct Tval : OptionSet {
          * \n is NOT a field separator (cf awk book 61,84).
          * this variable is tested in the inner while loop.
          */
-         let lenrs = runtime.symtab["RS"]!.sval.count
+         let lenrs = runtime.symtab["RS"]!.getsval().count
         let rtest =
         if lenrs > 0 {
           "\0"
@@ -512,10 +669,9 @@ struct Tval : OptionSet {
              newfld(i)
 //             growfldtab(i);
            }
-           runtime.fldtab[i].tval = [.FLD, .STR, .DONTFREE]
 
            let fr = r.prefix {c in c != sep && c != rtest.first && c != "\0" }
-           runtime.fldtab[i].sval = String(fr)
+           runtime.fldtab[i].val = .fld(String(fr), i)
            r = r.dropFirst(fr.count)
            //        while (*r != sep && *r != rtest && *r != '\0')  { // \n is always a separator
            //          *fr++ = *r++;
@@ -529,20 +685,24 @@ struct Tval : OptionSet {
     }
     runtime.fldtab = Array(runtime.fldtab[0..<i])
     runtime.donefld = true;
-    for var (j, p) in runtime.fldtab.enumerated() {
-      if j == 0 { continue }
-      if let n = Double(p.sval) {
-        p.fval = n
-        p.tval.insert(.NUM)
-      }
-    }
-    runtime.symtab["NF"]?.fval = Awkfloat(runtime.fldtab.count)
+
+    runtime.symtab["NF"]?.setfval(Awkfloat(runtime.fldtab.count))
     runtime.donerec = true; /* restore */
     if options.dbg > 0 {
       for (j, p) in runtime.fldtab.enumerated() {
         if j == 0 { continue }
-        print("field \(j) (\(p.nval)): |\(p.sval)|")
+        print("field \(j) (\(p.nval)): |\(p.getsval())|")
       }
     }
+  }
+}
+
+
+extension String {
+  func trimmed() -> String {
+    String(drop(while: \.isWhitespace)
+      .reversed()
+      .drop(while: \.isWhitespace)
+      .reversed())
   }
 }
