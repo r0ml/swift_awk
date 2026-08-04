@@ -387,26 +387,26 @@ extension RuntimeState {
 
           switch type {
           case "d", "i":
-              result += String(format: spec + "d", Int64(bitPattern: UInt64(arg.getfval())))
-          case "o": result += String(format: spec + "o", UInt64(arg.getfval()))
-          case "x": result += String(format: spec + "x", UInt64(arg.getfval()))
-          case "X": result += String(format: spec + "X", UInt64(arg.getfval()))
-          case "u": result += String(format: spec + "u", UInt64(arg.getfval()))
-          case "e": result += String(format: spec + "e", arg.getfval())
-          case "E": result += String(format: spec + "E", arg.getfval())
-          case "f": result += String(format: spec + "f", arg.getfval())
-          case "g": result += String(format: spec + "g", arg.getfval())
-          case "G": result += String(format: spec + "G", arg.getfval())
-          case "a": result += String(format: spec + "a", arg.getfval())
-          case "A": result += String(format: spec + "A", arg.getfval())
-          case "s": result += String(format: spec + "s", arg.getsval(fmt: OFMT))
+              result += cFormat( spec + "d", Int64(bitPattern: UInt64(arg.getfval())))
+          case "o": result += cFormat( spec + "o", UInt64(arg.getfval()))
+          case "x": result += cFormat( spec + "x", UInt64(arg.getfval()))
+          case "X": result += cFormat( spec + "X", UInt64(arg.getfval()))
+          case "u": result += cFormat( spec + "u", UInt64(arg.getfval()))
+          case "e": result += cFormat( spec + "e", arg.getfval())
+          case "E": result += cFormat( spec + "E", arg.getfval())
+          case "f": result += cFormat( spec + "f", arg.getfval())
+          case "g": result += cFormat( spec + "g", arg.getfval())
+          case "G": result += cFormat( spec + "G", arg.getfval())
+          case "a": result += cFormat( spec + "a", arg.getfval())
+          case "A": result += cFormat( spec + "A", arg.getfval())
+          case "s": result += cFormat( spec + "s", arg.getsval(fmt: OFMT))
           case "c":
               if arg.hasNum {
                   let n = Int(arg.getfval()) & 0xFF
-                  if n != 0 { result += String(format: spec + "c", n) }
+                  if n != 0 { result += cFormat(spec + "c", n) }
               } else {
                   let s = arg.getsval(fmt: CONVFMT)
-                  result += String(format: spec + "c", s.first.flatMap { $0.asciiValue }.map(Int.init) ?? 0)
+                  result += cFormat(spec + "c", s.first.flatMap { $0.asciiValue }.map(Int.init) ?? 0)
               }
           default: result.append(type)
           }

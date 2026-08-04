@@ -4,7 +4,7 @@
 // and the I/O management from run.c.
 
 import Foundation
-
+import CMigration 
 
 /// Swift equivalent of the C setjmp/longjmp control-flow mechanism.
 /// Each case is thrown and caught by the appropriate executor level.
@@ -65,9 +65,9 @@ struct AWKRuntimeError: Error, CustomStringConvertible {
       }
       var intPart = 0.0
       if modf(n, &intPart) == 0.0 {
-        return String(format: "%.30g", n)
+        return cFormat("%.30g", n)
       }
-      return String(format: fmt, n)
+      return cFormat(fmt, n)
     }
     
     // Returns true when the string is entirely numeric (per POSIX is_number).
