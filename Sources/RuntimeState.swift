@@ -33,6 +33,9 @@ actor RuntimeState {
       donerec = true
     }
   }
+
+  var dbg = 0
+  
   var yyin : FileDescriptor?
   var srand_seed : UInt32 = 1
   var inputFS : String = " "
@@ -410,4 +413,7 @@ extension RuntimeState {
     }
   }
 
+  func setDebug(_ d : Int) {
+    dbg = d
+  }
 }

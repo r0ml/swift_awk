@@ -28,8 +28,10 @@ import ShellTesting
 //    for f in k2 {
       print(f)
     let g = String(f.dropFirst("expected.".count))
-      let expected = try fileContents(f)
-      let inp1 = try inFile(g)
+      var expected = try fileContents(f)
+    if expected == "EMPTY\n" { expected = "" }
+
+    let inp1 = try inFile(g)
 
     if g.first == "t" {
       let inp2 = try inFile("test.data")

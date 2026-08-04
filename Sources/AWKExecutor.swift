@@ -23,7 +23,7 @@ extension RuntimeState {
     for fn in program.functions { functions[fn.name] = fn }
 
     // Set up ARGV / ARGC
-    let argc = options.args.count + 1
+    let argc = self.options.args.count + 1
     var argv : [Cell] = [Cell(string: CommandLine.arguments[0])]
     for (_, a) in options.args.enumerated() {
       argv.append(Cell(string: a))

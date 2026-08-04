@@ -77,8 +77,9 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
      */
     var options = CommandOptions()
       options.programName = programName
+      // for DPRINTF
 
-    let go = BSDGetopt("s::f:F:v:d::")
+    let go = BSDGetopt("f:F:v:d::s::")
   loop:
     while let (k,v) = try go.getopt() {
       switch k {
@@ -112,7 +113,13 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
         }
 
       case "d":
-        options.dbg = Int(v) ?? 1
+          if v.isEmpty {
+            options.dbg += 1
+          } else {
+            options.dbg = Int(v) ?? 1
+          }
+          // FIXME: for DPRINTF -- need the dbg flag -- and options doesn't get it in time.
+          await runtime.setDebug(options.dbg)
         print("awk \(version)")
       default:
         throw CmdErr(1)
@@ -310,8 +317,11 @@ func pgetc() -> Character { // get 1 character from awk program
 
 
   func DPRINTF(_ s : String) {
-    if options.dbg > 0 {
-      print(s)
+    // FIXME: ugly in the extreme -- problem with DPRINTF being called by parseOptions before options are set
+    Task {
+      if  await runtime.dbg > 0 {
+        print(s)
+      }
     }
   }
 
