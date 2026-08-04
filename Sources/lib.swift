@@ -25,8 +25,8 @@ THIS SOFTWARE.
 import CMigration
 import Darwin
 
-extension awk {
-  
+extension RuntimeState {
+
   /*
    char	EMPTY[] = { '\0' };
    FILE	*infile	= NULL;
@@ -108,10 +108,6 @@ extension awk {
     * whenever a new record is read in (implicitly or via getline), or when
     * a new value is assigned to $0.
     */
-  func savefs() {
-    runtime.inputFS = runtime.symtab["FS"]!.getsval()
-  }
-
   /*
    var firsttime = true
    
@@ -291,26 +287,18 @@ extension awk {
    }
    */
 
-  func setclvar(_ ss : String) { // set var=value from s
-    let k = ss.split(separator: "=")
-    let p = String(k[1])
-    let s = String(k[0])
-    runtime.symtab[s] = Cell(string: p, named: s)
-    DPRINTF("command line set \(s) to |\(p)|\n")
-  }
-
   func cleanfld(_ n1 : Int, _ n2 : Int)	{ // clean out fields n1 .. n2 inclusive
                                           // nvals remain intact
     for i in n1 ..< n2 {
-      runtime.fldtab[i].val = .fld("", i)
+      fldtab[i] = ""
     }
   }
 
   func newfld(_ n : Int) { // add field n after end of existing lastfld
-    while runtime.fldtab.count <= n {
+    while fldtab.count <= n {
 //      let k = Cell(ctype: .OCELL, csub: .CFLD, nval: String(runtime.fldtab.count), tval: [.FLD, .STR, .DONTFREE])
-      let k = Cell(field: "", at: runtime.fldtab.count)
-      runtime.fldtab.append(k)
+//      let k = Cell(field: "", at: fldtab.count)
+      fldtab.append("")
     }
    }
 
@@ -389,19 +377,19 @@ extension awk {
 
   
   func recbld()	{ // create $0 from $1..$NF if necessary
-    let sep = runtime.symtab["OFS"]!.getsval()
+    let sep = symtab["OFS"]!.getsval()
 
-    if runtime.donerec {
+    if donerec {
       return;
     }
     var r = ""
-    for i in 1 ..< runtime.fldtab.count {
-      let p = runtime.fldtab[i].getsval()
+    for i in 1 ..< fldtab.count {
+      let p = fldtab[i]
 //      if (!adjbuf(&record, &recsize, 1+strlen(p)+r-record, recsize, &r, "recbld 1")) {
 //        FATAL("created $0 `%\(runtime.record.prefix(30))...' too long")
 //      }
       r.append(p)
-      if i < runtime.fldtab.count-1 {
+      if i < fldtab.count-1 {
 //        if (!adjbuf(&record, &recsize, 2+strlen(sep)+r-record, recsize, &r, "recbld 2")) {
 //          FATAL("created $0 `\(runtime.record.prefix(30))...' too long")
 //        }
@@ -411,15 +399,13 @@ extension awk {
 //    if (!adjbuf(&record, &recsize, 2+r-record, recsize, &r, "recbld 3")) {
 //      FATAL("built giant record `\(runtime.record.prefix(30))...'")
 //    }
-    DPRINTF("in recbld inputFS=\(runtime.inputFS)\n")
+    DPRINTF("in recbld inputFS=\(inputFS)\n")
 
-    runtime.record = r
+    record = r
     
-    runtime.fldtab[0].val = .rec(r)
-
-    DPRINTF("in recbld inputFS=\(runtime.inputFS)\n")
+    DPRINTF("in recbld inputFS=\(inputFS)\n")
     DPRINTF("recbld = |\(r)|\n")
-    runtime.donerec = true;
+    donerec = true;
   }
 
   /*
@@ -483,10 +469,10 @@ extension awk {
    }
    }
    */
-  
+
   func FATAL(_ fmt : String) {
     var se = FileDescriptor.standardError
-    print("\(programName): \(fmt)", to: &se)
+    print("\(options.programName): \(fmt)", to: &se)
     error();
     if (options.dbg > 1)	{ // core dump if serious debugging on
       abort();
@@ -496,7 +482,7 @@ extension awk {
   
   func WARNING(_ fmt : String) {
     var se = FileDescriptor.standardError
-    print("\(programName): \(fmt)", to: &se)
+    print("\(options.programName): \(fmt)", to: &se)
     error();
   }
   
@@ -603,14 +589,6 @@ extension awk {
    return x;
    }
    */
-  func isclvar(_ s : String) -> Bool { // is s of form var=something ?
-    guard let sf = s.first else { return false }
-    guard sf.isLetter || sf == "_" else { return false }
-    let k = s.split(separator: "=")
-    guard k.count == 2 else { return false }
-    guard (k[0].allSatisfy { $0.isLetter || $0.isWholeNumber || $0 == "_" }) else { return false }
-    return true
-  }
   
   /* strtod is supposed to be a proper test of what's a valid number */
   /* appears to be broken in gcc on linux: thinks 0x123 is a valid FP number */
@@ -624,5 +602,12 @@ extension awk {
     return true
   }
   
-  
+  func cursource()  -> String? { // current source file name
+    if (options.pfile.count > 0) {
+      return options.pfile[curpfile < options.pfile.count ? curpfile : curpfile - 1]
+    }
+    else {
+      return nil
+    }
+  }
 }

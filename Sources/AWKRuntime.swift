@@ -5,26 +5,28 @@
 
 import Foundation
 
-extension awk {
+
+/// Swift equivalent of the C setjmp/longjmp control-flow mechanism.
+/// Each case is thrown and caught by the appropriate executor level.
+enum AWKSignal: Error {
+  case break_
+  case continue_
+  case next
+  case nextFile
+  case `return` (Cell)
+  case exit_(Int32)
+}
+
+struct AWKRuntimeError: Error, CustomStringConvertible {
+  let description: String
+  init(_ msg: String) { description = msg }
+}
+
+// extension awk {
   
   // MARK: - Errors and Signals
   
-  struct AWKRuntimeError: Error, CustomStringConvertible {
-    let description: String
-    init(_ msg: String) { description = msg }
-  }
-  
-  /// Swift equivalent of the C setjmp/longjmp control-flow mechanism.
-  /// Each case is thrown and caught by the appropriate executor level.
-  enum AWKSignal: Error {
-    case break_
-    case continue_
-    case next
-    case nextFile
-    case `return` (Cell)
-    case exit_(Int32)
-  }
-  
+
   
   // MARK: - AWK Runtime Utilities
   
@@ -188,4 +190,4 @@ extension awk {
     }
   }
   
-}
+// }

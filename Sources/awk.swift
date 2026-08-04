@@ -42,52 +42,13 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
     var fs : String = ""
     var dbg : Int = 0
     var lexprog : String? = nil
+    var programName : String = ""
     var args : [String] = []
   }
 
   var options : CommandOptions!
 
-  class RuntimeVars {
-    var curpfile = 0
-    var symtab : [String : Cell] = [:]
-    var fldtab : [Cell] = []
-    var record : String?  /* points to $0 */
-    var yyin : FileDescriptor?
-    var srand_seed : UInt32 = 1
-    var inputFS : String = " "
-    var lineno : Int = 0    // line number in awk program 
-    var errorflag = false  // 1 if error has occurred
-    var donefld = false  // true if record broken into fields
-    var donerec = true  // true if record is valid (no fld has changed
-    var ARGVtab : [Cell] = [] // symbol table containing ARGV[...]
-    var ENVtab : [String : Cell] = [:] // symbol table containing ENVIRON[...]
-    var callStack: [CallFrame] = []
-    var inEndBlock = false   // disables donefld update in END
-
-
-    // MARK: Function registry (populated before execution)
-    var functions: [String: FunctionDefinition] = [:]
-
-
-    var FS : String = " "
-    var RS : String = "\n"
-    var OFS : String = " "
-    var ORS : String = "\n"
-    var OFMT : String = "%.6g"
-    var CONVFMT : String = "%.6g"
-    var FILENAME : String = ""
-    var NF : Double = 0.0
-    var NR : Double = 0.0
-    var FNR : Double = 0
-    var SUBSEP : String = "\u{1C}"
-    var RSTART : Double = 0
-    var RLENGTH : Double = 0
-
-    var exitCode: Int32 = 0
-
-  }
-
-  var runtime = RuntimeVars()
+  var runtime = RuntimeState.shared
 
 
 
@@ -99,7 +60,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
    ++p;
    */
 
-    func parseOptions() throws(CmdErr) -> CommandOptions {
+    func parseOptions() async throws(CmdErr) -> CommandOptions {
 
 //    setlocale(LC_CTYPE, "");
 //    setlocale(LC_COLLATE, "");
@@ -115,6 +76,8 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
      } else {
      */
     var options = CommandOptions()
+      options.programName = programName
+
     let go = BSDGetopt("s::f:F:v:d::")
   loop:
     while let (k,v) = try go.getopt() {
@@ -141,11 +104,11 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
       case "v":  /* -v a=1 to be done NOW.  one -v for each */
         let vn = v
-        if (isclvar(vn)) {
-          setclvar(vn)
+          if (isclvar(vn)) {
+          await setclvar(vn)
         }
         else {
-          FATAL("invalid -v option argument: \(vn)")
+          throw CmdErr(2, "invalid -v option argument: \(vn)")
         }
 
       case "d":
@@ -179,7 +142,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
     /* Set and keep track of the random seed */
  //   srand_seed = 1;
-    srandom(runtime.srand_seed)
+    await srandom(runtime.srand_seed)
 
  //   runtime.yyin = nil
  //   symtab = makesymtab(NSYMTAB/NSYMTAB);
@@ -189,7 +152,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
         if options.dbg != 0 {
           exit(0);
         }
-        FATAL("no program given")
+        throw CmdErr(2, "no program given")
       }
       let vv = options.args.removeFirst()
       DPRINTF("program = |\(vv)|\n")
@@ -201,8 +164,9 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
 
   func runCommand() async throws(CmdErr) {
-    recinit(RECSIZE)
-    syminit()
+    await runtime.setOptions(options)
+    await runtime.recinit(RECSIZE)
+    await runtime.syminit()
 
 
     //    compile_time = COMPILING;
@@ -249,7 +213,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
         // Step 3: Execute
         // From files:
-      try run(ast, inputPaths: options.args)
+      try await runtime.run(ast, inputPaths: options.args)
         // From stdin (no inputPaths):
 //        try run(ast, inputPaths: [], programArgs: ["awk"])
 
@@ -343,20 +307,32 @@ func pgetc() -> Character { // get 1 character from awk program
 }
 */
 
-func cursource()	-> String? { // current source file name
-  if (options.pfile.count > 0) {
-    return options.pfile[runtime.curpfile < options.pfile.count ? runtime.curpfile : runtime.curpfile - 1]
-  }
-  else {
-    return nil
-  }
-}
+
 
   func DPRINTF(_ s : String) {
     if options.dbg > 0 {
       print(s)
     }
   }
+
+  func isclvar(_ s : String) -> Bool { // is s of form var=something ?
+    guard let sf = s.first else { return false }
+    guard sf.isLetter || sf == "_" else { return false }
+    let k = s.split(separator: "=")
+    guard k.count == 2 else { return false }
+    guard (k[0].allSatisfy { $0.isLetter || $0.isWholeNumber || $0 == "_" }) else { return false }
+    return true
+  }
+
+  func setclvar(_ ss : String) async { // set var=value from s
+    let k = ss.split(separator: "=")
+    let p = String(k[1])
+    let s = String(k[0])
+    await runtime.setsym( Cell(string: p, named: s))
+    DPRINTF("command line set \(s) to |\(p)|\n")
+  }
+
+
 }
 
 

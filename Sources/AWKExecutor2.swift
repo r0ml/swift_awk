@@ -3,7 +3,7 @@
 
 import CMigration
 
-extension awk {
+extension RuntimeState {
 
   // MARK: - Statement execution
 
@@ -85,10 +85,10 @@ extension awk {
               let code = try eval(e).getfval()
               throw AWKSignal.exit_(Int32(code))
           }
-          throw AWKSignal.exit_(runtime.exitCode)
+          throw AWKSignal.exit_(exitCode)
 
       case .return_(let e):
-          let cell = e != nil ? (try eval(e!)) : Cell(string: "")
+          let cell = e != nil ? (try eval(e!)) : Cell()
           throw AWKSignal.`return`(cell)
 
       case .break_:
@@ -114,7 +114,7 @@ extension awk {
 
       case .regexMatch(let pat):
           // Bare /re/ → match against $0
-          let s = runtime.getField(0)
+          let s = getField(0)
           let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
           return Cell(number: matched ? 1 : 0)
 
@@ -123,17 +123,17 @@ extension awk {
           return resolveVar(name)
 
       case .argument(let i):
-          if let frame = runtime.callStack.last, i < frame.cells.count { return frame.cells[i] }
+          if let frame = callStack.last, i < frame.cells.count { return frame.cells[i] }
           throw AWKRuntimeError("function argument \(i) out of range")
 
       case .varnf:
           // should be  fldbld()
-          runtime.ensureFields()
-          return runtime.symtab["NF"]!
+          ensureFields()
+          return symtab["NF"]!
 
       case .field(let e):
           let n = Int(try eval(e).getfval())
-          let s = runtime.getField(n)
+          let s = getField(n)
           let c = Cell(field: s, at: n)
 //          if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }
           return c
@@ -159,36 +159,36 @@ extension awk {
       // --- Comparison ---
       case .equal(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) == 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) == 0 ? 1 : 0)
 
       case .notEqual(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) != 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) != 0 ? 1 : 0)
 
       case .lessThan(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) < 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) < 0 ? 1 : 0)
 
       case .lessEqual(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) <= 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) <= 0 ? 1 : 0)
 
       case .greaterThan(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) > 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) > 0 ? 1 : 0)
 
       case .greaterEqual(let a, let b):
           let x = try eval(a), y = try eval(b)
-          return Cell(number: AWKRuntime.compare(x, y, convfmt: runtime.CONVFMT) >= 0 ? 1 : 0)
+          return Cell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) >= 0 ? 1 : 0)
 
       case .patternMatch(let e, let re):
-          let s = try eval(e).getsval(fmt: runtime.CONVFMT)
+          let s = try eval(e).getsval(fmt: CONVFMT)
           let pat = try regexPattern(re)
           let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
           return Cell(number: matched ? 1 : 0)
 
       case .patternNotMatch(let e, let re):
-          let s = try eval(e).getsval(fmt: runtime.CONVFMT)
+          let s = try eval(e).getsval(fmt: CONVFMT)
           let pat = try regexPattern(re)
           let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
           return Cell(number: matched ? 0 : 1)
@@ -196,7 +196,7 @@ extension awk {
       case .inArray(let e, let arrName):
           fatalError("unimplmented inArray")
           /*
-          let key = try eval(e).getsval(fmt: runtime.CONVFMT)
+          let key = try eval(e).getsval(fmt: CONVFMT)
           let arr = resolveVar(arrName)
           return Cell(number: arr.array?[key] != nil ? 1 : 0)
            */
@@ -204,8 +204,8 @@ extension awk {
       case .inArrayTuple(let exprs, let arrName):
           fatalError("unimplmented inArrayTuple")
           /*
-          let parts = try exprs.map { try eval($0).getsval(fmt: runtime.CONVFMT) }
-          let key = runtime.subscriptKey(parts)
+          let parts = try exprs.map { try eval($0).getsval(fmt: CONVFMT) }
+          let key = subscriptKey(parts)
           let arr = resolveVar(arrName)
           return Cell(number: arr.array?[key] != nil ? 1 : 0)
 */
@@ -215,19 +215,19 @@ extension awk {
           return try execGetline(lv: lv)
 
       case .getlineFrom(let lv, let src):
-          let path = try eval(src).getsval(fmt: runtime.CONVFMT)
-          let file = try runtime.fileFor(name: path, mode: .read)
+          let path = try eval(src).getsval(fmt: CONVFMT)
+          let file = try fileFor(name: path, mode: .read)
           return try readLineInto(lv: lv, from: file, updates0: true)
 
       case .getlinePipe(let lv, let cmd):
-          let cmdStr = try eval(cmd).getsval(fmt: runtime.CONVFMT)
-          let file = try runtime.fileFor(name: cmdStr, mode: .inputPipe)
+          let cmdStr = try eval(cmd).getsval(fmt: CONVFMT)
+          let file = try fileFor(name: cmdStr, mode: .inputPipe)
           return try readLineInto(lv: lv, from: file, updates0: false)
 
       // --- Arithmetic ---
       case .concat(let a, let b):
-          let sa = try eval(a).getsval(fmt: runtime.CONVFMT)
-          let sb = try eval(b).getsval(fmt: runtime.CONVFMT)
+          let sa = try eval(a).getsval(fmt: CONVFMT)
+          let sb = try eval(b).getsval(fmt: CONVFMT)
           return Cell(string: sa + sb)
 
       case .add(let a, let b):
@@ -294,8 +294,8 @@ extension awk {
 
       // --- String operations ---
       case .sprintfExpr(let args):
-          guard !args.isEmpty else { return Cell(string: "") }
-          let fmtStr = try eval(args[0]).getsval(fmt: runtime.CONVFMT)
+          guard !args.isEmpty else { return Cell() }
+          let fmtStr = try eval(args[0]).getsval(fmt: CONVFMT)
           return Cell(string: try format(fmtStr, args: Array(args.dropFirst())))
 
       case .subExpr(let kind, let reExpr, let replExpr, let target):
@@ -308,8 +308,8 @@ extension awk {
           return try execSplit(str: str, arrName: arrName, sep: sep)
 
       case .indexExpr(let hay, let needle):
-          let h = try eval(hay).getsval(fmt: runtime.CONVFMT)
-          let n = try eval(needle).getsval(fmt: runtime.CONVFMT)
+          let h = try eval(hay).getsval(fmt: CONVFMT)
+          let n = try eval(needle).getsval(fmt: CONVFMT)
           if n.isEmpty { return Cell(number: 0) }
           if let r = h.range(of: n) {
               let off = h.distance(from: h.startIndex, to: r.lowerBound)
@@ -318,28 +318,28 @@ extension awk {
           return Cell(number: 0)
 
       case .matchFuncExpr(let str, let reExpr):
-          let s = try eval(str).getsval(fmt: runtime.CONVFMT)
+          let s = try eval(str).getsval(fmt: CONVFMT)
           let pat = try regexPattern(reExpr)
           if let (_, nsRange) = try AWKRuntime.pmatch(pattern: pat, in: s) {
             let start = Double(nsRange.location + 1)
             let len   = Double(nsRange.length)
-            runtime.RSTART  = start
-            runtime.RLENGTH = len
+            RSTART  = start
+            RLENGTH = len
             return Cell(number: start)
           }
-          runtime.RSTART = 0
-          runtime.RLENGTH = -1
+          RSTART = 0
+          RLENGTH = -1
           return Cell(number: 0)
 
       case .closeExpr(let e):
-          let name = try eval(e).getsval(fmt: runtime.CONVFMT)
-          runtime.closeFile(name: name)
+          let name = try eval(e).getsval(fmt: CONVFMT)
+          closeFile(name: name)
           return Cell(number: 0)
 
       case .indirect(let e):
           // @expr or $$n — treat as field
           let n = Int(try eval(e).getfval())
-          let s = runtime.getField(n)
+          let s = getField(n)
           return Cell(string: s)
       }
   }
@@ -382,7 +382,7 @@ extension awk {
           guard i < fmt.endIndex else { break }
           let type = fmt[i]; fmt.formIndex(after: &i)
 
-        let arg: Cell = argIdx < args.count ? (try eval(args[argIdx])) : Cell(string: "")
+        let arg: Cell = argIdx < args.count ? (try eval(args[argIdx])) : Cell()
           argIdx += 1
 
           switch type {
@@ -399,13 +399,13 @@ extension awk {
           case "G": result += String(format: spec + "G", arg.getfval())
           case "a": result += String(format: spec + "a", arg.getfval())
           case "A": result += String(format: spec + "A", arg.getfval())
-          case "s": result += String(format: spec + "s", arg.getsval(fmt: runtime.OFMT))
+          case "s": result += String(format: spec + "s", arg.getsval(fmt: OFMT))
           case "c":
               if arg.hasNum {
                   let n = Int(arg.getfval()) & 0xFF
                   if n != 0 { result += String(format: spec + "c", n) }
               } else {
-                  let s = arg.getsval(fmt: runtime.CONVFMT)
+                  let s = arg.getsval(fmt: CONVFMT)
                   result += String(format: spec + "c", s.first.flatMap { $0.asciiValue }.map(Int.init) ?? 0)
               }
           default: result.append(type)
