@@ -31,6 +31,7 @@ import ShellTesting
       var expected = try fileContents(f)
     if expected == "EMPTY\n" { expected = "" }
 
+    let b = try geturl()
     let inp1 = try inFile(g)
 
     if g.first == "t" {
@@ -38,7 +39,7 @@ import ShellTesting
       try await run(output: expected, args: "-f", inp1, inp2)
     } else {
       let inp2 = try inFile("test.countries")
-      try await run(output: expected, args: "-f", inp1, inp2, inp2)
+      try await run(output: expected, args: "-f", inp1, inp2.relativeTo(b), inp2.relativeTo(b), cd: b)
 
     }
 
