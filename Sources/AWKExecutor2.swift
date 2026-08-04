@@ -267,21 +267,29 @@ extension RuntimeState {
 
       // --- Increment / decrement ---
       case .preIncrement(let lv):
-          var c = try evalLValue(lv); c.setfval(c.getfval() + 1);
+          var c = try evalLValue(lv)
+          c.setfval(c.getfval() + 1)
+          setsym(c)
           return c
 
       case .preDecrement(let lv):
-          var c = try evalLValue(lv); c.setfval(c.getfval() - 1);
+          var c = try evalLValue(lv)
+          c.setfval(c.getfval() - 1)
+          setsym(c)
           return c
 
       case .postIncrement(let lv):
           var c = try evalLValue(lv)
-          let old = c.getfval(); c.setfval(old + 1)
+          let old = c.getfval()
+          c.setfval(old + 1)
+          setsym(c)
           return Cell(number: old)
 
       case .postDecrement(let lv):
           var c = try evalLValue(lv)
-          let old = c.getfval(); c.setfval(old - 1)
+          let old = c.getfval()
+          c.setfval(old - 1)
+          setsym(c)
           return Cell(number: old)
 
       // --- User-defined function call ---

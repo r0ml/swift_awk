@@ -272,7 +272,6 @@ extension RuntimeState {
     // if case .variable(let name) = lv { writeback(name: name, cell: result) }
 
     // target.copyScalarFrom(result)
-    // FIXME: if Cell becomes a class, need to make a copy
     target.val = result.val
     setsym(target)
     return target
