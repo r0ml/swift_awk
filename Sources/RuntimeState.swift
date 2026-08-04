@@ -372,7 +372,7 @@ extension RuntimeState {
 
   // C: fldbld() trigger — lib.c
   func ensureFields() {
-      if !donefld { splitRecord(); donefld = true }
+    if !donefld { splitRecord(); donefld = true; donerec = true }
   }
 
   // C: fldbld() body — lib.c
