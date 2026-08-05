@@ -253,6 +253,7 @@ extension RuntimeState {
     if arr is Dictionary {
       var ee = (arr as! Dictionary).dict
       ee[key] = c
+      storeVar(name, Dictionary(dict: ee))
     } else {
       var ee = [String:Cell]()
       ee[key] = c
