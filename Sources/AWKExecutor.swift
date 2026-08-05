@@ -28,7 +28,7 @@ extension RuntimeState {
     for (_, a) in options.args.enumerated() {
       argv.append(ValueCell(string: a))
     }
-    setsym("ARGV", ArrayCell(array: argv))
+    setsym("ARGV", Dictionary(array: argv))
     setsym("ARGC", ValueCell(number: argc))
 
     // Range-pattern pairstack
@@ -233,10 +233,10 @@ extension RuntimeState {
 
   // C: array() — run.c
   func resolveElement(name: String, keys: [Expression]) throws -> Cell {
-    let parts = try keys.map { try eval($0).asString() }
-    let key = subscriptKey(parts)
     let arr = resolveVar(name)
     if arr is Dictionary {
+      let parts = try keys.map { try eval($0).asString() }
+      let key = subscriptKey(parts)
       let ee = (arr as! Dictionary).dict
       if let existing = ee[key] { return existing }
       return EmptyCell()

@@ -94,6 +94,7 @@ class ValueCell : Cell {
   }
 }
 
+/*
 class ArrayCell : Cell {
   var array : [Cell]
 
@@ -111,10 +112,11 @@ class ArrayCell : Cell {
   var isTrue = false
 
 }
+*/
 
 class EmptyCell : Cell {
   init() {}
-  func asNumber() -> Double? { return nil }
+  func asNumber() -> Double? { return 0 }
   func asString() -> String { return "" }
   func asString(fmt: String) -> String { return "" }
   var isTrue = false
@@ -138,6 +140,13 @@ class Dictionary : Cell {
   init(dict: [String:Cell]) {
     self.dict = dict
   }
+
+  init(array: [Cell]) {
+    for (i,j) in array.enumerated() {
+      dict[String(i)]=j
+    }
+  }
+
   func length() -> Int {
     return dict.count
   }

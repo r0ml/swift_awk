@@ -36,7 +36,7 @@ import ShellTesting
 
     if g.first == "t" {
       let inp2 = try inFile("test.data")
-      try await run(output: expected, args: "-f", inp1, inp2)
+      try await run(output: expected, args: "-f", inp1.relativeTo(b), inp2.relativeTo(b), cd: b)
     } else {
       let inp2 = try inFile("test.countries")
       try await run(output: expected, args: "-f", inp1, inp2.relativeTo(b), inp2.relativeTo(b), cd: b)

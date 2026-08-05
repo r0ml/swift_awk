@@ -69,7 +69,6 @@ extension RuntimeState {
           let keys = Array(aa.keys)
           for key in keys {
               guard let _ = aa[key] else { continue }
-            var v = resolveVar(varName) // the forIn var
             storeVar(varName, ValueCell(string: key))
               do { try exec(body) }
               catch AWKSignal.break_ { return }
@@ -164,7 +163,8 @@ extension RuntimeState {
           return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) == 0 ? 1 : 0)
 
       case .notEqual(let a, let b):
-          let x = try eval(a), y = try eval(b)
+          let x = try eval(a)
+          let y = try eval(b)
           return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) != 0 ? 1 : 0)
 
       case .lessThan(let a, let b):
