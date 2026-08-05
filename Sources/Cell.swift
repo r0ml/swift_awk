@@ -26,6 +26,7 @@ THIS SOFTWARE.
 ****************************************************************/
 
 import CMigration
+import stdlib_h
 
 typealias Awkfloat = Double
 
@@ -82,7 +83,16 @@ class ValueCell : Cell {
   func asNumber() -> Double? {
     if let nval { return nval }
     if let sval {
-      if let n = Double(sval.trimmed()) {
+
+      // FIXME: do this business upon creation of the cell
+      if let n = (sval.withCString { c in
+        let cc = UnsafeMutablePointer(mutating: c)
+        var k : UnsafeMutablePointer<CChar>? = cc
+        let r = strtod(c, &k)
+        return k == cc ? nil : r
+      })
+//      if let n = Double(sval.trimmed())
+      {
         // if this were mutating ...
         nval = n
         return n

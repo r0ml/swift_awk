@@ -17,7 +17,7 @@ import ShellTesting
   }
 
   @Test("Checks basic functionality",
-        arguments: getList()[0..<135]
+        arguments: getList()
         //        arguments: ["expected.p.1"]
   ) func basic(_ f : String) async throws {
     /*    let j = try geturl()

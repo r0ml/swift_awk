@@ -131,6 +131,7 @@ extension RuntimeState {
     switch expr {
         
         // --- Literals ---
+        // FIXME: constants don't get converted to numbers -- fields don't get converted to numbers on compare?
       case .number(let n):
         return ValueCell(number: n)
         
@@ -164,7 +165,8 @@ extension RuntimeState {
         return c
         
       case .element(let name, let keys):
-        return try resolveElement(name: name, keys: keys)
+        let (rr, _) = try resolveElement(name: name, keys: keys)
+        return rr
         
         // --- Assignment ---
       case .assign(let op, let lv, let rhs):
@@ -293,29 +295,29 @@ extension RuntimeState {
         
         // --- Increment / decrement ---
       case .preIncrement(let lv):
-        let c = try evalLValue(lv)
+        let (c, n, x) = try evalLValue(lv)
         let k = ValueCell(number: c.getNumber() + 1)
-        try storeLValue(lv, k)
+        try storeLValue(lv, k, n, x)
         return k
         
       case .preDecrement(let lv):
-        let c = try evalLValue(lv)
+        let (c, n, x) = try evalLValue(lv)
         let k = ValueCell(number: c.getNumber() - 1)
-        try storeLValue(lv, k)
+        try storeLValue(lv, k, n, x)
         return k
         
       case .postIncrement(let lv):
-        let c = try evalLValue(lv)
+        let (c, n, x) = try evalLValue(lv)
         let old = c.getNumber()
         let k = ValueCell(number: old + 1)
-        try storeLValue(lv, k)
+        try storeLValue(lv, k, n, x)
         return c
         
       case .postDecrement(let lv):
-        let c = try evalLValue(lv)
+        let (c, n, x) = try evalLValue(lv)
         let old = c.getNumber()
         let k = ValueCell(number: old - 1)
-        try storeLValue(lv, k)
+        try storeLValue(lv, k, n, x)
         return c
         
         // --- User-defined function call ---

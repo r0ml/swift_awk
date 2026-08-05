@@ -175,7 +175,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
   func runCommand() async throws(CmdErr) {
     await runtime.setOptions(options)
-    await runtime.recinit(RECSIZE)
+//    await recinit(RECSIZE)
     await runtime.syminit()
 
 

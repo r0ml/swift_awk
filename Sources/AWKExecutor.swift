@@ -162,22 +162,22 @@ extension RuntimeState {
   // MARK: - LValue resolution (returns the cell itself for mutation)
   
   // C: field() / array() / indirect() — run.c
-  func evalLValue(_ lv: LValue) throws -> Cell {
+  func evalLValue(_ lv: LValue) throws -> (Cell, Int?, String?) { // value, fldnum
     switch lv {
       case .variable(let name):
-        return resolveVar(name)
-        
+        return (resolveVar(name), nil, nil)
+
       case .argument(let i):
         guard let frame = callStack.last, i < frame.cells.count else {
           throw AWKRuntimeError("function argument \(i) out of range")
         }
-        return frame.cells[i]
-        
+        return (frame.cells[i], nil, nil)
+
       case .varnf:
         // Assign to NF specially through a proxy cell that triggers setNF on write.
         // For simplicity, we handle NF assignment in execAssign.
-        let c = symtab["NF"]!; return c
-        
+        let c = symtab["NF"]!; return (c, nil, nil)
+
       case .field(let e):
         // Field lvalue — we can't return a reference to an element of env.fields.
         // Instead, return a proxy: a cell whose value changes are applied via setField.
@@ -185,19 +185,20 @@ extension RuntimeState {
         // This is handled per-case in execAssign and incr/decr.
         // For the incr/decr case, we need the actual stored cell; use a field cell.
         let n = Int(try eval(e).getNumber())
-        return makeFieldCell(n)
-        
+        return (makeFieldCell(n), n, nil)
+
       case .element(let name, let keys):
-        return try resolveElement(name: name, keys: keys)
-        
+        let (rr, k) = try resolveElement(name: name, keys: keys)
+        return (rr, nil, k)
+
       case .indirect(let e):
         let n = Int(try eval(e).getNumber())
-        return makeFieldCell(n)
+        return (makeFieldCell(n), n, nil)
     }
   }
   
-  
-  func storeLValue(_ lv: LValue, _ c : Cell) throws  {
+  // FIXME: can I make the evalLValue / storeLValue pair a single function (with a closure arg?)
+  func storeLValue(_ lv: LValue, _ c : Cell, _ fldnum : Int?, _ key : String?) throws  {
     switch lv {
       case .variable(let name):
         return storeVar(name, c)
@@ -219,15 +220,13 @@ extension RuntimeState {
         // We wrap this in a FieldProxy approach: return a cell and post-assign it.
         // This is handled per-case in execAssign and incr/decr.
         // For the incr/decr case, we need the actual stored cell; use a field cell.
-        let n = Int(try eval(e).getNumber())
-        setFieldCell(n, c)
-        
+        setFieldCell(fldnum!, c)
+
       case .element(let name, let keys):
-        try storeElement(name: name, keys: keys, c)
-        
+        try storeElement(name: name, c, key!)
+
       case .indirect(let e):
-        let n = Int(try eval(e).getNumber())
-        setFieldCell(n, c)
+        setFieldCell(fldnum!, c)
     }
   }
   
@@ -239,6 +238,7 @@ extension RuntimeState {
     if var frame = callStack.last {
       if let i = frame.paramNames.firstIndex(of: name) {
         frame.cells[i]=c
+        callStack[callStack.endIndex-1] = frame
       }
     }
     setsym(name, c)
@@ -253,28 +253,27 @@ extension RuntimeState {
         return frame.cells[i]
       }
     }
-    // FIXME: should be a nil instead of a string
     return symtab[name] ?? EmptyCell()
   }
   
   // C: array() — run.c
-  func resolveElement(name: String, keys: [Expression]) throws -> Cell {
+  func resolveElement(name: String, keys: [Expression]) throws -> (Cell, String) {
+    let parts = try keys.map { try eval($0).asString() }
+    let key = subscriptKey(parts)
     let arr = resolveVar(name)
     if arr is Dictionary {
-      let parts = try keys.map { try eval($0).asString() }
-      let key = subscriptKey(parts)
       let ee = (arr as! Dictionary).dict
-      if let existing = ee[key] { return existing }
-      return EmptyCell()
+      if let existing = ee[key] { return (existing, key) }
+      return (EmptyCell(), key)
     }
     // should never happen
-    return EmptyCell()
+    return (EmptyCell(), key)
   }
   
   // C: array() — run.c
-  func storeElement(name: String, keys: [Expression], _ c : Cell) throws {
-    let parts = try keys.map { try eval($0).asString() }
-    let key = subscriptKey(parts)
+  func storeElement(name: String, _ c : Cell, _ key : String) throws {
+//    let parts = try keys.map { try eval($0).asString() }
+//    let key = subscriptKey(parts)
     let arr = resolveVar(name)
     if arr is Dictionary {
       var ee = (arr as! Dictionary).dict
@@ -348,9 +347,9 @@ extension RuntimeState {
       return newVal
     }
     
-    let target = try evalLValue(lv)
+    let (target, fldnum, key) = try evalLValue(lv)
     let result = applyOp(op, lhsNum: target.getNumber(), lhsStr: target.asString(), rhs: rhsVal)
-    try storeLValue(lv, result)
+    try storeLValue(lv, result, fldnum, key)
     return target
   }
   
@@ -587,8 +586,9 @@ extension RuntimeState {
       return ValueCell(number: -1)
     }
     if let lv {
+      let (_, n, x) = try evalLValue(lv)
       let k = ValueCell(string: line)
-      try storeLValue(lv, k)
+      try storeLValue(lv, k, n, x)
     } else {
       NR += 1; FNR += 1
       record = line
@@ -600,8 +600,9 @@ extension RuntimeState {
   func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) throws -> Cell {
     guard let line = file.readRecord(rs: RS) else { return ValueCell(number: 0) }
     if let lv {
+      let (_, n, x) = try evalLValue(lv)
       let k = ValueCell(string: line)
-      try storeLValue(lv, k)
+      try storeLValue(lv, k, n, x)
     } else if updates0 {
       record = line
     }
@@ -629,7 +630,7 @@ extension RuntimeState {
   func execSub(kind: SubKind, reExpr: Expression, replExpr: Expression, target: LValue) throws -> Cell {
     let pat = try regexPattern(reExpr)
     let repl = try eval(replExpr).asString()
-    var targetCell = try evalLValue(target)
+    var (targetCell, n, x) = try evalLValue(target)
     let str = targetCell.asString()
     
     var result : String = ""
@@ -663,7 +664,7 @@ extension RuntimeState {
     }
     
     targetCell = ValueCell(string: result)
-    try storeLValue(target, targetCell)
+    try storeLValue(target, targetCell, n, x)
     return ValueCell(number: count)
   }
   
