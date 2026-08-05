@@ -97,6 +97,15 @@ extension RuntimeState {
   }
 
   func setsym(_ n : String, _ s : Cell) {
+    if let k = symtab[n] {
+      if k is BuiltInString {
+        (k as! BuiltInString).setter(s.asString())
+        return
+      } else if k is BuiltInNumber {
+        (k as! BuiltInNumber).setter(s.getNumber())
+        return
+      }
+    }
     symtab[n] = s
   }
 

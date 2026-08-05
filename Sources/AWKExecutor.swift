@@ -215,7 +215,7 @@ extension RuntimeState {
         frame.cells[i]=c
       }
     }
-    symtab[name]=c
+    setsym(name, c)
   }
 
   // C: setsymtab() + lookup() — tran.c
