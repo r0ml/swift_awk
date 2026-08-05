@@ -129,7 +129,8 @@ extension RuntimeState {
     setsym("OFMT", BuiltInString( { self.OFMT }, { self.OFMT = $0 } ))
     setsym("CONVFMT", BuiltInString( { self.CONVFMT }, { self.CONVFMT = $0; GlobalCONVFMT = $0 } ))
     setsym("FILENAME", BuiltInString( { self.FILENAME }, { self.FILENAME = $0 } ))
-    setsym("NF", BuiltInNumber( { self.NF }, { self.NF = $0 } ))
+    // FIXME: this doesn't get used because the parser handles assignment and reference to NF specially
+    setsym("NF", BuiltInNumber( { self.NF }, { self.NF = $0; self.donerec = false } ))
     setsym("NR", BuiltInNumber( { self.NR }, { self.NR = $0 } ))
     setsym("FNR", BuiltInNumber( { self.FNR }, { self.FNR = $0 } ))
     setsym("SUBSEP", BuiltInString( { self.SUBSEP }, { self.SUBSEP = $0 } ))
@@ -172,8 +173,7 @@ extension RuntimeState {
         if n < fldtab.count { fldtab = Array(fldtab.prefix(n)) }
       while fldtab.count < n { fldtab.append("") }
         NF = Double(n)
-      // FIXME: in theory, the assignment into fldtab set this with didSet
-//        donerec = false
+        donerec = false
     }
 
   // FIXME: perhaps I should only store one or the other (fields or record) and the other one is
