@@ -377,7 +377,7 @@ extension RuntimeState {
 
   
   func recbld()	{ // create $0 from $1..$NF if necessary
-    let sep = symtab["OFS"]!.getsval()
+    let sep = symtab["OFS"]!.asString()
 
     if donerec {
       return;

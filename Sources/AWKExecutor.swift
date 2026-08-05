@@ -24,13 +24,12 @@ extension RuntimeState {
 
     // Set up ARGV / ARGC
     let argc = self.options.args.count + 1
-    var argv : [Cell] = [Cell(string: CommandLine.arguments[0])]
+    var argv : [Cell] = [ValueCell(string: CommandLine.arguments[0])]
     for (_, a) in options.args.enumerated() {
-      argv.append(Cell(string: a))
+      argv.append(ValueCell(string: a))
     }
-    symtab["ARGV"] = Cell(array: argv, named: "ARGV")
-    symtab["ARGC"] = Cell(number: argc, named: "ARGC")
-
+    setsym("ARGV", ArrayCell(array: argv))
+    setsym("ARGC", ValueCell(number: argc))
 
     // Range-pattern pairstack
     pairstack = Array(repeating: false, count: program.rules.count)
@@ -159,19 +158,65 @@ extension RuntimeState {
         // We wrap this in a FieldProxy approach: return a cell and post-assign it.
         // This is handled per-case in execAssign and incr/decr.
         // For the incr/decr case, we need the actual stored cell; use a field cell.
-        let n = Int(try eval(e).getfval())
+        let n = Int(try eval(e).getNumber())
         return makeFieldCell(n)
 
       case .element(let name, let keys):
         return try resolveElement(name: name, keys: keys)
 
       case .indirect(let e):
-        let n = Int(try eval(e).getfval())
+        let n = Int(try eval(e).getNumber())
         return makeFieldCell(n)
     }
   }
 
+
+  func storeLValue(_ lv: LValue, _ c : Cell) throws  {
+    switch lv {
+      case .variable(let name):
+        return storeVar(name, c)
+
+      case .argument(let i):
+        guard var frame = callStack.last, i < frame.cells.count else {
+          throw AWKRuntimeError("function argument \(i) out of range")
+        }
+        frame.cells[i]=c
+
+      case .varnf:
+        // Assign to NF specially through a proxy cell that triggers setNF on write.
+        // For simplicity, we handle NF assignment in execAssign.
+        setsym("NF", c)
+
+      case .field(let e):
+        // Field lvalue — we can't return a reference to an element of env.fields.
+        // Instead, return a proxy: a cell whose value changes are applied via setField.
+        // We wrap this in a FieldProxy approach: return a cell and post-assign it.
+        // This is handled per-case in execAssign and incr/decr.
+        // For the incr/decr case, we need the actual stored cell; use a field cell.
+        let n = Int(try eval(e).getNumber())
+        setFieldCell(n, c)
+
+      case .element(let name, let keys):
+        try storeElement(name: name, keys: keys, c)
+
+      case .indirect(let e):
+        let n = Int(try eval(e).getNumber())
+        setFieldCell(n, c)
+    }
+  }
+
   // MARK: - Variable / element resolution
+
+  func storeVar(_ name : String, _ c : Cell) {
+    // Check built-in variables first
+    // Check current call frame
+    if var frame = callStack.last {
+      if let i = frame.paramNames.firstIndex(of: name) {
+        frame.cells[i]=c
+      }
+    }
+    symtab[name]=c
+  }
 
   // C: setsymtab() + lookup() — tran.c
   func resolveVar(_ name: String) -> Cell {
@@ -183,33 +228,39 @@ extension RuntimeState {
       }
     }
     // FIXME: should be a nil instead of a string
-    return symtab[name] ?? Cell(string:"", named: name)
-  }
-
-  // C: (no direct equivalent; lazy sync of built-in variable Cell mirrors)
-  func syncedBuiltin(_ name: String,
-                     get: () -> Cell) -> Cell {
-    if let c = symtab[name] { return c }
-    let c = get(); symtab[name] = c; return c
+    return symtab[name] ?? EmptyCell()
   }
 
   // C: array() — run.c
   func resolveElement(name: String, keys: [Expression]) throws -> Cell {
-    let parts = try keys.map { try eval($0).getsval(fmt: CONVFMT) }
+    let parts = try keys.map { try eval($0).asString() }
     let key = subscriptKey(parts)
-    var arr = resolveVar(name)
-    if case .dict = arr.val {}
-    else { arr.val = .dict([:]) }
-    if case .dict(var ee) = arr.val {
+    let arr = resolveVar(name)
+    if arr is Dictionary {
+      let ee = (arr as! Dictionary).dict
       if let existing = ee[key] { return existing }
-      let c = Cell()
-      ee[key] = c
-      arr.val = .dict(ee)
-      return c
+      return EmptyCell()
     }
     // should never happen
-    return Cell()
+    return EmptyCell()
   }
+
+  // C: array() — run.c
+  func storeElement(name: String, keys: [Expression], _ c : Cell) throws {
+    let parts = try keys.map { try eval($0).asString() }
+    let key = subscriptKey(parts)
+    let arr = resolveVar(name)
+    if arr is Dictionary {
+      var ee = (arr as! Dictionary).dict
+      ee[key] = c
+    } else {
+      var ee = [String:Cell]()
+      ee[key] = c
+      storeVar(name, Dictionary(dict: ee))
+    }
+  }
+
+
 
   // MARK: - Field proxy cells
 
@@ -220,18 +271,23 @@ extension RuntimeState {
   func makeFieldCell(_ n: Int) -> Cell {
     //        if let existing = fieldCells[n] { return existing }
     let s = getField(n)
-    let c = Cell(field: s, at: n)
-    // FIXME: cache the num-equivalent value if a num
-    //        if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }
-    //        fieldCells[n] = c
+    let c = ValueCell(string: s)
     return c
+  }
+
+  // C: fieldadr() — lib.c
+  func setFieldCell(_ n: Int, _ c : Cell) {
+    // do I need to do "ensureFields" ?
+    ensureFields()
+    if n == 0 { ensureRecord(); record = c.asString() ; return}
+    fldtab[n-1]=c.asString()
   }
 
   /*
    // C: (no direct equivalent; field proxy write-back)
    func flushFieldCells() {
    for (n, c) in fieldCells {
-   setField(n, c.getsval(fmt: CONVFMT))
+   setField(n, c.asString())
    }
    fieldCells = [:]
    }
@@ -245,35 +301,29 @@ extension RuntimeState {
 
     // NF assignment requires special handling
     if case .varnf = lv {
-      let n = Int(rhsVal.getfval())
+      let n = Int(rhsVal.getNumber())
       setNF(n)
 
-      return Cell(number: n)
+      return ValueCell(number: n)
     }
 
     // Field assignment writes through to env.fields / env.record
     if case .field(let fe) = lv {
-      let n = Int(try eval(fe).getfval())
-      let cur = Cell(number: getField(n) == "" ? 0 : 0)
+      let n = Int(try eval(fe).getNumber())
+      let cur = ValueCell(number: getField(n) == "" ? 0 : 0)
       let curStr = getField(n)
       let curNum = AWKRuntime.parseNum(curStr)
       let newVal = applyOp(op, lhsNum: curNum, lhsStr: curStr, rhs: rhsVal)
-      setField(n, newVal.getsval(fmt: CONVFMT))
+      setField(n, newVal.asString())
       // FIXME: why the reference to donefld here?
       if n == 0 { donefld = false }
       _ = cur  // suppress warning
       return newVal
     }
 
-    var target = try evalLValue(lv)
-    let result = applyOp(op, lhsNum: target.getfval(), lhsStr: target.getsval(fmt: CONVFMT), rhs: rhsVal)
-
-    // Write back to built-in variables
-    // if case .variable(let name) = lv { writeback(name: name, cell: result) }
-
-    // target.copyScalarFrom(result)
-    target.val = result.val
-    setsym(target)
+    let target = try evalLValue(lv)
+    let result = applyOp(op, lhsNum: target.getNumber(), lhsStr: target.asString(), rhs: rhsVal)
+    try storeLValue(lv, result)
     return target
   }
 
@@ -281,18 +331,18 @@ extension RuntimeState {
   func applyOp(_ op: AssignOp, lhsNum: Double, lhsStr: String, rhs: Cell) -> Cell {
     switch op {
       case .set:    return rhs
-      case .addSet: return Cell(number: lhsNum + rhs.getfval())
-      case .subSet: return Cell(number: lhsNum - rhs.getfval())
-      case .mulSet: return Cell(number: lhsNum * rhs.getfval())
+      case .addSet: return ValueCell(number: lhsNum + rhs.getNumber())
+      case .subSet: return ValueCell(number: lhsNum - rhs.getNumber())
+      case .mulSet: return ValueCell(number: lhsNum * rhs.getNumber())
       case .divSet:
-        let d = rhs.getfval()
-        return Cell(number: d == 0 ? 0 : lhsNum / d)   // real code throws
+        let d = rhs.getNumber()
+        return ValueCell(number: d == 0 ? 0 : lhsNum / d)   // real code throws
       case .modSet:
-        let d = rhs.getfval()
+        let d = rhs.getNumber()
         var i = 0.0; modf(lhsNum / d, &i)
-        return Cell(number: lhsNum - d * i)
+        return ValueCell(number: lhsNum - d * i)
       case .powSet:
-        return Cell(number: ipow(lhsNum, rhs.getfval()))
+        return ValueCell(number: ipow(lhsNum, rhs.getNumber()))
     }
   }
 
@@ -314,7 +364,7 @@ extension RuntimeState {
   // C: (no direct equivalent; extracts pattern string from an expression node)
   func regexPattern(_ e: Expression) throws -> String {
     if case .regexMatch(let s) = e { return s }
-    return try eval(e).getsval(fmt: CONVFMT)
+    return try eval(e).asString()
   }
 
   // MARK: - Print statement
@@ -326,13 +376,13 @@ extension RuntimeState {
       case .none:
         output = AWKFile(name: "/dev/stdout", mode: .write, handle: .standardOutput)
       case .redirect(let e):
-        let path = try eval(e).getsval(fmt: CONVFMT)
+        let path = try eval(e).asString()
         output = try fileFor(name: path, mode: .write)
       case .append(let e):
-        let path = try eval(e).getsval(fmt: CONVFMT)
+        let path = try eval(e).asString()
         output = try fileFor(name: path, mode: .append)
       case .pipe(let e):
-        let cmd = try eval(e).getsval(fmt: CONVFMT)
+        let cmd = try eval(e).asString()
         output = try fileFor(name: cmd, mode: .outputPipe)
     }
 
@@ -341,7 +391,7 @@ extension RuntimeState {
         try print_(args, dest: dest, to: output)
       case .printf:
         guard !args.isEmpty else { return }
-        let fmtStr = try eval(args[0]).getsval(fmt: CONVFMT)
+        let fmtStr = try eval(args[0]).asString()
         let result = try format(fmtStr, args: Array(args.dropFirst()))
         try output.write(result)
     }
@@ -359,7 +409,7 @@ extension RuntimeState {
     for arg in args {
       if !first { try out.write(OFS) }
       let val = try eval(arg)
-      try out.write(val.getsval(fmt: OFMT))
+      try out.write(val.asString(fmt: OFMT))
       first = false
     }
     try out.write(ORS)
@@ -372,16 +422,16 @@ extension RuntimeState {
     switch lv {
       case .variable(let name):
         var c = resolveVar(name)
-        // FIXME: should be nil rather than .sval
-        c.val = .sval("")
-        //            c.array = nil; c.hasNum = false; c.hasStr = false; c.strVal = ""; c.numVal = 0
+        storeVar(name, EmptyCell())
+
       case .element(let name, let keys):
-        let parts = try keys.map { try eval($0).getsval(fmt: CONVFMT) }
+        let parts = try keys.map { try eval($0).asString() }
         let key = subscriptKey(parts)
         let ee = resolveVar(name)
-        if case .dict(var aa) = ee.val {
-          aa.removeValue(forKey: key)
+        if ee is Dictionary {
+          var aa = (ee as! Dictionary).dict
           // FIXME: aa has to be stored back?
+          aa.removeValue(forKey: key)
         }
       default:
         throw AWKRuntimeError("delete requires a variable or array element")
@@ -399,15 +449,11 @@ extension RuntimeState {
     var cells: [Cell] = []
     for argExpr in argExprs {
       let c = try eval(argExpr)
-      if case .arr(var cc) = c.val {
-        cells.append(c)   // arrays: pass by reference
-      } else {
-        // FIXME: this works because Cells are structs, but if classes, need to be copied
-        cells.append(c) // let copy = Cell(); copy.copyScalarFrom(c); cells.append(copy)
-      }
+      // FIXME: did I muck this up?
+      cells.append(c)
     }
     // Pad with empty cells for any unspecified parameters
-    while cells.count < fn.params.count { cells.append(Cell()) }
+    while cells.count < fn.params.count { cells.append(EmptyCell()) }
     // Extra locals beyond defined params
     // (one-true-awk uses extra params as local variables)
 
@@ -420,7 +466,7 @@ extension RuntimeState {
     } catch AWKSignal.`return`(let val) {
       return val
     }
-    return callStack.last?.retval ?? Cell()
+    return callStack.last?.retval ?? EmptyCell()
   }
 
   // MARK: - Builtin function call
@@ -431,29 +477,28 @@ extension RuntimeState {
       case .length:
         if args.isEmpty {
           ensureFields()
-          return Cell(number: record!.count)
+          return ValueCell(number: record!.count)
         }
         let c = try eval(args[0])
-        if case .arr(let arr) = c.val { return Cell(number: arr.count) }
-        return Cell(number: c.getsval(fmt: CONVFMT).count)
+        return ValueCell(number: c.length() )
 
       case .sqrt:
-        return Cell(number: sqrt(try eval(args[0]).getfval()))
+        return ValueCell(number: sqrt(try eval(args[0]).getNumber()))
 
       case .exp:
-        return Cell(number: exp(try eval(args[0]).getfval()))
+        return ValueCell(number: exp(try eval(args[0]).getNumber()))
 
       case .log:
-        let v = try eval(args[0]).getfval()
+        let v = try eval(args[0]).getNumber()
         if v <= 0 { throw AWKRuntimeError("log: argument must be positive") }
-        return Cell(number: log(v))
+        return ValueCell(number: log(v))
 
       case .int_:
-        var intPart = 0.0; modf(try eval(args[0]).getfval(), &intPart)
-        return Cell(number: intPart)
+        var intPart = 0.0; modf(try eval(args[0]).getNumber(), &intPart)
+        return ValueCell(number: intPart)
 
       case .system:
-        let cmd = try eval(args[0]).getsval(fmt: CONVFMT)
+        let cmd = try eval(args[0]).asString()
         fflush(stdout)
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -461,48 +506,48 @@ extension RuntimeState {
         let code: Int
         do { try proc.run(); proc.waitUntilExit(); code = Int(proc.terminationStatus) }
         catch { code = -1 }
-        return Cell(number: code)
+        return ValueCell(number: code)
 
       case .rand:
-        return Cell(number: Double(arc4random()) / Double(UInt32.max) + 1)
+        return ValueCell(number: Double(arc4random()) / Double(UInt32.max) + 1)
 
       case .srand:
         let old = srand_seed
         let seed: Double
         if args.isEmpty { seed = Double(DateTime().timeInterval) }
-        else            { seed = try eval(args[0]).getfval() }
+        else            { seed = try eval(args[0]).getNumber() }
         srand_seed = UInt32(seed)
         srand48(Int(seed))
-        return Cell(number: Double(old))
+        return ValueCell(number: Double(old))
 
       case .sin:
-        return Cell(number: sin(try eval(args[0]).getfval()))
+        return ValueCell(number: sin(try eval(args[0]).getNumber()))
 
       case .cos:
-        return Cell(number: cos(try eval(args[0]).getfval()))
+        return ValueCell(number: cos(try eval(args[0]).getNumber()))
 
       case .atan2:
-        let y = try eval(args[0]).getfval()
-        let x = args.count > 1 ? try eval(args[1]).getfval() : 1.0
-        return Cell(number: atan2(y, x))
+        let y = try eval(args[0]).getNumber()
+        let x = args.count > 1 ? try eval(args[1]).getNumber() : 1.0
+        return ValueCell(number: atan2(y, x))
 
       case .toupper:
-        return Cell(string: try eval(args[0]).getsval(fmt: CONVFMT).uppercased())
+        return ValueCell(string: try eval(args[0]).asString().uppercased())
 
       case .tolower:
-        return Cell(string: try eval(args[0]).getsval(fmt: CONVFMT).lowercased())
+        return ValueCell(string: try eval(args[0]).asString().lowercased())
 
       case .fflush:
         if args.isEmpty {
           flushAll()
         } else {
-          let name = try eval(args[0]).getsval(fmt: CONVFMT)
+          let name = try eval(args[0]).asString()
           if name.isEmpty { flushAll() }
           else if let f = openFiles.first(where: { $0.name == name }) {
             try? f.handle.synchronize()
           }
         }
-        return Cell(number: 0)
+        return ValueCell(number: 0)
     }
   }
 
@@ -513,32 +558,30 @@ extension RuntimeState {
     // Bare getline — read next record from current input (stdin)
     // For simplicity, read from stdin
     guard let line = readln(from: .standardInput) else {
-      return Cell(number: -1)
+      return ValueCell(number: -1)
     }
     if let lv {
       var c = try evalLValue(lv)
-      c.setsval(line)
-      // FIXME: need to save c back?
-      //  if AWKRuntime.isNumber(line) { c.setBoth(AWKRuntime.parseNum(line), line) }
+      let k = ValueCell(string: line)
+      try storeLValue(lv, k)
     } else {
       NR += 1; FNR += 1
       record = line
     }
-    return Cell(number: 1)
+    return ValueCell(number: 1)
   }
 
   // C: awkgetline() file-variant — run.c
   func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) throws -> Cell {
-    guard let line = file.readRecord(rs: RS) else { return Cell(number: 0) }
+    guard let line = file.readRecord(rs: RS) else { return ValueCell(number: 0) }
     if let lv {
       var c = try evalLValue(lv)
-      c.setsval(line)
-      // FIXME: the setsval should cache the number if it is a number
-      //            if AWKRuntime.isNumber(line) { c.setBoth(AWKRuntime.parseNum(line), line) }
+      let k = ValueCell(string: line)
+      try storeLValue(lv, k)
     } else if updates0 {
       record = line
     }
-    return Cell(number: 1)
+    return ValueCell(number: 1)
   }
 
   // C: readrec() — lib.c
@@ -560,78 +603,71 @@ extension RuntimeState {
 
   // C: sub() — run.c
   func execSub(kind: SubKind, reExpr: Expression, replExpr: Expression, target: LValue) throws -> Cell {
-    fatalError("not implemneted")
-    // FIXME: put me back
-    /*
-     let pat = try regexPattern(reExpr)
-     let repl = try eval(replExpr).getsval(fmt: CONVFMT)
-     let targetCell = try evalLValue(target)
-     let str = targetCell.getsval(fmt: CONVFMT)
+    let pat = try regexPattern(reExpr)
+    let repl = try eval(replExpr).asString()
+    var targetCell = try evalLValue(target)
+    let str = targetCell.asString()
 
-     let re = try AWKRuntime.makeRegex(pat)
-     let ns = str as NSString
-     let range = NSRange(location: 0, length: ns.length)
-     var count = 0
+    var result : String = ""
 
-     switch kind {
-     case .sub:
-     if let m = re.firstMatch(in: str, range: range) {
-     let matched = ns.substring(with: m.range)
-     let replacement = AWKRuntime.applyReplacement(repl, matched: Substring(matched))
-     let result = ns.replacingCharacters(in: m.range, with: replacement)
-     targetCell.setsval(result)
-     count = 1
-     }
-     case .gsub:
-     var result = ""
-     var lastEnd = str.startIndex
-     for m in re.matches(in: str, range: range) {
-     guard let r = Range(m.range, in: str) else { continue }
-     result += str[lastEnd..<r.lowerBound]
-     let matched = str[r]
-     result += AWKRuntime.applyReplacement(repl, matched: matched)
-     lastEnd = r.upperBound
-     count += 1
-     }
-     result += str[lastEnd...]
-     targetCell.setsval(result)
-     }
+    let re = try AWKRuntime.makeRegex(pat)
+    let ns = str as NSString
+    let range = NSRange(location: 0, length: ns.length)
+    var count = 0
 
-     // Write back if this is a field lvalue
-     if case .field(let fe) = target {
-     let n = Int(try eval(fe).getfval())
-     setField(n, targetCell.setsval(fmt: CONVFMT))
-     }
+    switch kind {
+      case .sub:
+        if let m = re.firstMatch(in: str, range: range) {
+          let matched = ns.substring(with: m.range)
+          let replacement = AWKRuntime.applyReplacement(repl, matched: Substring(matched))
+          result = ns.replacingCharacters(in: m.range, with: replacement)
+          // FIXME: if the cell is a symbol, then a didSet could deal with updating the symbol value
+         count = 1
+        }
+      case .gsub:
+        var result = ""
+        var lastEnd = str.startIndex
+        for m in re.matches(in: str, range: range) {
+          guard let r = Range(m.range, in: str) else { continue }
+          result += str[lastEnd..<r.lowerBound]
+          let matched = str[r]
+          result += AWKRuntime.applyReplacement(repl, matched: matched)
+          lastEnd = r.upperBound
+          count += 1
+        }
+        result += str[lastEnd...]
+    }
 
-     return Cell(number: count)
-     */
+    targetCell = ValueCell(string: result)
+    try storeLValue(target, targetCell)
+    return ValueCell(number: count)
   }
 
   // C: substr() — run.c
   func execSubstr(str: Expression, start: Expression, len: Expression?) throws -> Cell {
-    let s = try eval(str).getsval(fmt: CONVFMT)
+    let s = try eval(str).asString()
     let k = s.count
-    if k == 0 { return Cell(string: "") }
+    if k == 0 { return EmptyCell() }
 
-    var m = Int(try eval(start).getfval())
+    var m = Int(try eval(start).getNumber())
     if m <= 0 { m = 1 }
-    else if m > k + 1 { return Cell() }
+    else if m > k + 1 { return EmptyCell() }
 
     let n: Int
     if let lenExpr = len {
-      n = max(0, min(Int(try eval(lenExpr).getfval()), k - m + 1))
+      n = max(0, min(Int(try eval(lenExpr).getNumber()), k - m + 1))
     } else {
       n = k - m + 1
     }
 
     let startIdx = s.index(s.startIndex, offsetBy: m - 1, limitedBy: s.endIndex) ?? s.endIndex
     let endIdx   = s.index(startIdx, offsetBy: n, limitedBy: s.endIndex) ?? s.endIndex
-    return Cell(string: String(s[startIdx..<endIdx]))
+    return ValueCell(string: String(s[startIdx..<endIdx]))
   }
 
   // C: split() — run.c
   func execSplit(str: Expression, arrName: String, sep: Expression?) throws -> Cell {
-    let s = try eval(str).getsval(fmt: CONVFMT)
+    let s = try eval(str).asString()
     var arr = resolveVar(arrName)
 
     var ee = [String:Cell]()
@@ -639,7 +675,7 @@ extension RuntimeState {
     let fs: String
     if let sepExpr = sep {
       if case .regexMatch(let pat) = sepExpr { fs = pat }
-      else { fs = try eval(sepExpr).getsval(fmt: CONVFMT) }
+      else { fs = try eval(sepExpr).asString() }
     } else {
       fs = FS
     }
@@ -673,14 +709,14 @@ extension RuntimeState {
     for (i, p) in parts.enumerated() {
       let key = String(i + 1)
       // FIXME: can cache the convertability of strings to numbers for performance
-      let c = Cell(string: p)
+      let c = ValueCell(string: p)
       ee[key] = c
     }
 
     // FIXME: does this need to reset whatever the "resolved" value is?
-    arr.val = .dict(ee)
+    storeVar(arrName, Dictionary(dict: ee))
 
-    return Cell(number: parts.count)
+    return ValueCell(number: parts.count)
   }
 
 }

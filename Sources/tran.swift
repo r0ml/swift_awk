@@ -110,8 +110,8 @@ extension awk {
 
   func envinit() async { // set up ENVIRON variable
     var aa = [String:Cell]()
-    for (k, v) in Environment.getenv() { aa[k]=Cell(string: v, named: k) }
-    await runtime.setsym(Cell(dict: aa, named: "ENVIRON"))
+    for (k, v) in Environment.getenv() { aa[k]=ValueCell(string: v) }
+    await runtime.setsym("ENVIRON", Dictionary(dict: aa))
    }
 
   /*

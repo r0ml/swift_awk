@@ -17,18 +17,18 @@ import ShellTesting
   }
 
   @Test("Checks basic functionality",
-        arguments: getList()[0..<34]
+        arguments: getList()[0..<135]
         //        arguments: ["expected.p.1"]
   ) func basic(_ f : String) async throws {
-/*    let j = try geturl()
-    let k = try j.listDirectory().sorted()
+    /*    let j = try geturl()
+     let k = try j.listDirectory().sorted()
 
-    let k2 = k.filter { $0.hasPrefix("expected.") }
-*/
-//    for f in k2 {
-      print(f)
+     let k2 = k.filter { $0.hasPrefix("expected.") }
+     */
+    //    for f in k2 {
+    print(f)
     let g = String(f.dropFirst("expected.".count))
-      var expected = try fileContents(f)
+    var expected = try fileContents(f)
     if expected == "EMPTY\n" { expected = "" }
 
     let b = try geturl()
@@ -43,7 +43,7 @@ import ShellTesting
 
     }
 
-    
-//    }
+
+    //    }
   }
 }

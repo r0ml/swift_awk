@@ -100,11 +100,12 @@ struct AWKRuntimeError: Error, CustomStringConvertible {
     // Numeric comparison when both have numeric values; string comparison otherwise.
     // C: comparison logic in relop() — run.c
     static func compare(_ x: Cell, _ y: Cell, convfmt: String = "%.6g") -> Int {
-      if x.hasNum && y.hasNum {
-        let d = x.getfval() - y.getfval()
+      // FIXME: was passing convfmt
+      if let xx = x.asNumber(), let yy = y.asNumber() {
+        let d = xx - yy
         return d < 0 ? -1 : (d > 0 ? 1 : 0)
       }
-      let xs = x.getsval(fmt: convfmt), ys = y.getsval(fmt: convfmt)
+      let xs = x.asString(fmt: convfmt), ys = y.asString(fmt: convfmt)
       return xs < ys ? -1 : (xs > ys ? 1 : 0)
     }
     

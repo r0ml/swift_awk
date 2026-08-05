@@ -3,35 +3,208 @@
 
 import CMigration
 
-
-enum NodeValue {
-  case op([Node])
-  case const(Cell)
-}
-
-
-struct Node {
-  var ntype : Int
-  var lineno : Int
-  var nobj : Int
-  var narg : NodeValue
-}
-
-
 enum CellValue {
   case sval(String)
   case fval(Awkfloat)
   case arr([Cell])
   case dict([String:Cell])
-  case rec(String)
+  //  case rec(String)
   case fld(String, Int)
-  case fcn([Node])
+  //  case fcn([Node])
   case builtinString(()->String, (String)->())
   case builtinNumber(()->Double, (Double)->())
 }
 
+nonisolated(unsafe) public var GlobalCONVFMT : String = "%.6g"
 
-struct Cell {
+
+protocol Cell {
+  func asNumber() -> Double?
+  func getNumber() -> Double
+  func asString() -> String
+  func asString(fmt: String) -> String
+  var isTrue : Bool { get }
+  func length() -> Int
+}
+
+extension Cell {
+
+  func asString() -> String {
+    return asString(fmt: GlobalCONVFMT)
+  }
+
+
+  func asNumber() -> Double? {
+    return nil
+  }
+
+  func getNumber() -> Double {
+    return asNumber() ?? 0
+  }
+
+  func asString(fmt: String) -> String {
+    return ""
+  }
+
+  var isTrue : Bool { false }
+}
+
+class ValueCell : Cell {
+  var nval : Double?
+  var sval : String?
+
+  func asNumber() -> Double? {
+    if let nval { return nval }
+    if let sval {
+      if let n = Double(sval.trimmed()) {
+        // if this were mutating ...
+        nval = n
+        return n
+      }
+    }
+    return nil
+  }
+
+  func asString(fmt: String = GlobalCONVFMT) -> String {
+    if let sval { return sval }
+    if let nval { return cFormat(fmt, nval) }
+    return ""
+  }
+
+  init(string: String) {
+    self.sval = string
+  }
+
+  init(number: Double) {
+    self.nval = number
+  }
+
+  init(number: Int) {
+    self.nval = Double(number)
+  }
+
+  var isTrue : Bool {
+    if let nval, nval != 0 { return true }
+    if let sval, !sval.isEmpty, sval != "0" { return true }
+    return false
+  }
+
+  func length() -> Int {
+    return asString().count
+  }
+}
+
+class ArrayCell : Cell {
+  var array : [Cell]
+
+  init(array a : [Cell]) {
+    self.array = a
+  }
+
+  func length() -> Int {
+    return array.count
+  }
+  func asNumber() -> Double? { return nil }
+  func getNumber() -> Double { return 0 }
+  func asString() -> String { return "" }
+  func asString(fmt: String) -> String { return "" }
+  var isTrue = false
+
+}
+
+class EmptyCell : Cell {
+  init() {}
+  func asNumber() -> Double? { return nil }
+  func asString() -> String { return "" }
+  func asString(fmt: String) -> String { return "" }
+  var isTrue = false
+  func length() -> Int { return 0 }
+}
+/*
+class FieldCell : Cell {
+  let fldno : Int
+
+  init(field: Int) {
+    self.fldno = field
+  }
+}
+*/
+
+class Dictionary : Cell {
+  var dict : [String : Cell] = [:]
+
+  init() {}
+
+  init(dict: [String:Cell]) {
+    self.dict = dict
+  }
+  func length() -> Int {
+    return dict.count
+  }
+}
+
+
+/*
+class SymbolCell : Cell {
+  var name : String
+
+  init(named: String) {
+    self.name = named
+  }
+
+}
+*/
+
+class BuiltInString : Cell {
+  var getter : () -> String
+  var setter : (String) -> ()
+
+  init( _ getter: @escaping ()->String, _ setter: @escaping (String)->() ) {
+    self.getter = getter
+    self.setter = setter
+  }
+
+  var isTrue : Bool {
+    if let n = asNumber(), n != 0 { return true }
+    let s = asString()
+    if !s.isEmpty, s != "0" { return true }
+    return false
+  }
+
+  func asString(fmt: String) -> String {
+    return getter()
+  }
+
+  func asNumber() -> Double? {
+    let k = getter()
+    return Double(k)
+  }
+
+  func length() -> Int {
+    return getter().count
+  }
+}
+
+struct BuiltInNumber : Cell {
+  var getter : () -> Double
+  var setter : (Double) -> ()
+
+  init( _ getter: @escaping ()->Double, _ setter: @escaping (Double)->() ) {
+    self.getter = getter
+    self.setter = setter
+  }
+
+    func asNumber() -> Double? { return getter() }
+    func asString(fmt: String) -> String { return cFormat( fmt, getter()) }
+
+  func length() -> Int {
+    return asString().count
+  }
+}
+
+
+
+struct OldCell {
 //    var ctype : Ctype    // OCELL, OBOOL, OJUMP, etc.
 //    var csub : Subtype    // CCON, CTEMP, CFLD, etc.
   var nval : String?   // name, for variables only
@@ -42,13 +215,14 @@ struct Cell {
   //    var tval : Tval   // type info: STR|NUM|ARR|FCN|FLD|CON|DONTFREE|CONVC|CONVO
   var fmt : String?  // CONVFMT/OFMT value used to convert from number
 
-  var isarr : Bool { return if case .arr = val { true } else { false } }
+/*  var isarr : Bool { return if case .arr = val { true } else { false } }
   var isrec : Bool { return if case .rec = val { true } else { false } }
   var isfld : Bool { return if case .fld = val { true } else { false } }
   var isnum : Bool { return if case .fval = val { true } else { false } }
   var isstr : Bool { return if case .sval = val { true } else if case .rec = val { true } else if case .fld = val { true } else { false } }
-  var isfcn : Bool { return if case .fcn = val { true } else { false } }
-  var iddict : Bool { return if case .dict = val { true } else { false } }
+//  var isfcn : Bool { return if case .fcn = val { true } else { false } }
+  var isdict : Bool { return if case .dict = val { true } else { false } }
+*/
 
   /*
 
@@ -120,6 +294,7 @@ struct Cell {
     self.init(string: "")
   }
 
+  /*
   var hasNum : Bool {
     switch val {
       case .fval: return true
@@ -130,7 +305,8 @@ struct Cell {
       default: return false
     }
   }
-
+*/
+  
   // Get numeric value; lazily parses string if no numeric value is cached.
   // C: getfval() — tran.c
   func getfval() -> Double {
@@ -161,16 +337,18 @@ struct Cell {
 
   // Assign a numeric value (invalidates the cached string).
   // C: setfval() — tran.c
-  mutating func setfval(_ n: Double) {
+/*  mutating func setfval(_ n: Double) {
     val = .fval(n)
   }
-
+*/
+  
   // Assign a string value (invalidates the cached numeric value).
   // C: setsval() — tran.c
-  mutating func setsval(_ s: String) {
+/*  mutating func setsval(_ s: String) {
+
     val = .sval(s)
   }
-
+*/
   // Assign both numeric and string simultaneously (e.g. after a getline).
   // C: setsval() + setfval() combined — tran.c
 /*    func setBoth(_ n: Double, _ s: String) {
@@ -180,10 +358,10 @@ struct Cell {
 
   // Copy scalar state from another cell (does NOT deep-copy arrays).
   // C: copycell() — run.c
-  mutating func copycell(_ other: Cell) {
+ /* mutating func copycell(_ other: Cell) {
     val = other.val
   }
-
+*/
   /// AWK truth: non-zero number, or non-empty string that isn't "0".
   // C: truth-value test in boolop() / relop() — run.c
   var isTrue: Bool {
@@ -233,6 +411,7 @@ enum Subtype {
   case JNEXTFILE
 }
 
+  /*
 struct Tval : OptionSet {
   let rawValue : UInt
 
@@ -247,7 +426,7 @@ struct Tval : OptionSet {
   static let CONVC = Tval(rawValue: 256) // string was converted from number via CONVFMT
   static let CONVO = Tval(rawValue: 512) // string was converted from number via OFMT
 }
-
+*/
 
 
 
@@ -286,7 +465,7 @@ struct Tval : OptionSet {
     WARNING("funny variable: n=\(vp.nval) s=\"\(vp.sval)\" f=\(vp.fval) t=\(vp.tval)")
   }
 
-  func setsval(_ vp : inout Cell, _ s : String) -> String {  // set string val of a Cell
+ func setsval(_ vp : inout Cell, _ s : String) -> String {  // set string val of a Cell
 
     DPRINTF("starting setsval: \(vp.nval) = \"\(s)\", t=\(vp.tval), r,f=\(runtime.donerec),\(runtime.donefld)\n")
     if !vp.tval.containsAny(of: [.NUM , .STR] ) {

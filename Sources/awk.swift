@@ -338,7 +338,7 @@ func pgetc() -> Character { // get 1 character from awk program
     let k = ss.split(separator: "=")
     let p = String(k[1])
     let s = String(k[0])
-    await runtime.setsym( Cell(string: p, named: s))
+    await runtime.setsym(s, ValueCell(string: p))
     DPRINTF("command line set \(s) to |\(p)|\n")
   }
 

@@ -8,7 +8,7 @@ struct CallFrame {
     let funcName: String
     let paramNames: [String]   // formal parameter names
     var cells: [Cell]       // one cell per parameter + extra locals
-  var retval: Cell = Cell()
+  var retval: Cell = EmptyCell()
 }
 
 actor RuntimeState {
@@ -96,8 +96,8 @@ extension RuntimeState {
     self.options = o
   }
 
-  func setsym(_ s : Cell) {
-    if let n = s.nval { symtab[n] = s }
+  func setsym(_ n : String, _ s : Cell) {
+    symtab[n] = s
   }
 
 
@@ -113,22 +113,22 @@ extension RuntimeState {
     // nullnode = celltonode(nullloc, CCON);
 
     // fsloc =
-    setsym(Cell(builtinString: "FS", { self.FS }, { self.FS = $0 } ) )
-    setsym(Cell(builtinString: "RS", { self.RS }, { self.RS = $0 } ))
-    setsym(Cell(builtinString: "OFS", { self.OFS }, { self.OFS = $0 } ))
-    setsym(Cell(builtinString: "ORS", { self.ORS }, { self.ORS = $0 } ))
-    setsym(Cell(builtinString: "OFMT", { self.OFMT }, { self.OFMT = $0 } ))
-    setsym(Cell(builtinString: "CONVFMT", { self.CONVFMT }, { self.CONVFMT = $0 } ))
-    setsym(Cell(builtinString: "FILENAME", { self.FILENAME }, { self.FILENAME = $0 } ))
-    setsym(Cell(builtinNumber: "NF", { self.NF }, { self.NF = $0 } ))
-    setsym(Cell(builtinNumber: "NR", { self.NR }, { self.NR = $0 } ))
-    setsym(Cell(builtinNumber: "FNR", { self.FNR }, { self.FNR = $0 } ))
-    setsym(Cell(builtinString: "SUBSEP", { self.SUBSEP }, { self.SUBSEP = $0 } ))
-    setsym(Cell(builtinNumber: "RSTART", { self.RSTART }, { self.RSTART = $0 } ))
-    setsym(Cell(builtinNumber: "RLENGTH", { self.RLENGTH }, { self.RLENGTH = $0 } ))
+    setsym("FS", BuiltInString( { self.FS }, { self.FS = $0 } ) )
+    setsym("RS", BuiltInString( { self.RS }, { self.RS = $0 } ))
+    setsym("OFS", BuiltInString( { self.OFS }, { self.OFS = $0 } ))
+    setsym("ORS", BuiltInString( { self.ORS }, { self.ORS = $0 } ))
+    setsym("OFMT", BuiltInString( { self.OFMT }, { self.OFMT = $0 } ))
+    setsym("CONVFMT", BuiltInString( { self.CONVFMT }, { self.CONVFMT = $0; GlobalCONVFMT = $0 } ))
+    setsym("FILENAME", BuiltInString( { self.FILENAME }, { self.FILENAME = $0 } ))
+    setsym("NF", BuiltInNumber( { self.NF }, { self.NF = $0 } ))
+    setsym("NR", BuiltInNumber( { self.NR }, { self.NR = $0 } ))
+    setsym("FNR", BuiltInNumber( { self.FNR }, { self.FNR = $0 } ))
+    setsym("SUBSEP", BuiltInString( { self.SUBSEP }, { self.SUBSEP = $0 } ))
+    setsym("RSTART", BuiltInNumber( { self.RSTART }, { self.RSTART = $0 } ))
+    setsym("RLENGTH", BuiltInNumber( { self.RLENGTH }, { self.RLENGTH = $0 } ))
 
     // FIXME: is this really necessary?
-    setsym(Cell(dict: symtab, named: "SYMTAB"))
+    setsym("SYMTAB", Dictionary(dict: symtab))
 //    setsymtab("SYMTAB", "", 0.0, [.ARR])
     // free(symtabloc->sval);
     // symtabloc->sval = (char *) symtab;
@@ -257,7 +257,7 @@ extension RuntimeState {
 
 
   func savefs() {
-    inputFS = symtab["FS"]!.getsval()
+    inputFS = symtab["FS"]!.asString()
   }
 
 
@@ -330,7 +330,7 @@ extension RuntimeState {
          * \n is NOT a field separator (cf awk book 61,84).
          * this variable is tested in the inner while loop.
          */
-         let lenrs = symtab["RS"]!.getsval().count
+         let lenrs = symtab["RS"]!.asString().count
         let rtest =
         if lenrs > 0 {
           "\0"
@@ -361,7 +361,7 @@ extension RuntimeState {
     fldtab = Array(fldtab[0..<i])
     donefld = true;
 
-    symtab["NF"]?.setfval(Awkfloat(fldtab.count))
+    setsym("NF", ValueCell(number: fldtab.count))
     donerec = true; /* restore */
     if options.dbg > 0 {
       for (j, p) in fldtab.enumerated() {
