@@ -151,7 +151,7 @@ extension RuntimeState {
     }
     ensureFields()
     while fldtab.count < n { fldtab.append("") }
-    fldtab[n - 1] = ""
+    fldtab[n - 1] = val
     if Double(n) > NF { NF = Double(n) }
     // FIXME: in theory, the assignment into fldtab set this with didSet
 //    donerec = false

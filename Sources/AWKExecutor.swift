@@ -625,7 +625,7 @@ extension RuntimeState {
          count = 1
         }
       case .gsub:
-        var result = ""
+        result = ""
         var lastEnd = str.startIndex
         for m in re.matches(in: str, range: range) {
           guard let r = Range(m.range, in: str) else { continue }
