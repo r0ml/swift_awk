@@ -222,13 +222,15 @@ extension RuntimeState {
         return ValueCell(number: matched ? 0 : 1)
         
       case .inArray(let e, let arrName):
-        fatalError("unimplmented inArray")
-        /*
          let key = try eval(e).asString()
-         let arr = resolveVar(arrName)
-         return Cell(number: arr.array?[key] != nil ? 1 : 0)
-         */
-        
+        // FIXME: make the nil optional
+         let arr = try resolveVar(arrName, nil)
+        if arr is Dictionary {
+          return ValueCell(number: (arr as! Dictionary).dict[key] == nil ? 0 : 1)
+        } else {
+          return ValueCell(number: 0)
+        }
+
       case .inArrayTuple(let exprs, let arrName):
         fatalError("unimplmented inArrayTuple")
         /*
@@ -344,7 +346,8 @@ extension RuntimeState {
       case .indexExpr(let hay, let needle):
         let h = try eval(hay).asString()
         let n = try eval(needle).asString()
-        if n.isEmpty { return ValueCell(number: 0) }
+        // Weird, but that is the definition for AWK index
+        if n.isEmpty { return ValueCell(number: 1) }
         if let r = h.range(of: n) {
           let off = h.distance(from: h.startIndex, to: r.lowerBound)
           return ValueCell(number: Double(off + 1))   // 1-based
