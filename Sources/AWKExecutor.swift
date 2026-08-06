@@ -752,23 +752,16 @@ extension RuntimeState {
     } else if fs.isEmpty {
       parts = s.map { String($0) }
     } else {
-      fatalError("not implemented")
-      // FIXME: put me back
-      /*
-       guard let re = try? NSRegularExpression(pattern: fs) else { return Cell(number: 0) }
-       let ns = s as NSString
-       let range = NSRange(location: 0, length: ns.length)
-       var result: [String] = []
-       var last = 0
-       for m in re.matches(in: s, range: range) {
-       result.append(ns.substring(with: NSRange(location: last, length: m.range.location - last)))
-       last = m.range.location + m.range.length
-       }
-       result.append(ns.substring(from: last))
-       parts = result
-       */
+
+      if let re = try? Regex<Substring>(fixre(fs)) {
+//          parts = awkSplit(s, by: re).map { String($0) }
+        parts = substringsBetweenMatches(in: s, matching: re).map { String($0) }
+      } else {
+        print("not a valid regex: \(fs)")
+        parts = []
+      }
     }
-    
+
     for (i, p) in parts.enumerated() {
       let key = String(i + 1)
       // FIXME: can cache the convertability of strings to numbers for performance
@@ -782,4 +775,68 @@ extension RuntimeState {
     return ValueCell(number: parts.count)
   }
   
+}
+
+func substringsBetweenMatches(
+    in s: String,
+    matching re: Regex<Substring>
+) -> [Substring] {
+    var result: [Substring] = []
+
+    var start = s.startIndex
+
+    for match in s.matches(of: re) {
+        let range = match.range
+        result.append(s[start..<range.lowerBound])
+        start = range.upperBound
+    }
+
+    // Text after the final match
+  if start < s.endIndex { result.append(s[start..<s.endIndex]) }
+
+    return result
+}
+
+func fixre(_ s  : String) -> String {
+//  return s.replacingOccurrences(of: "-", with: "\\-")
+/*  var x = s
+  x.removeFirst()
+  x.removeLast()
+  // FIXME: what probably happens here is that invalid ranges get replaced, but valid ones don't
+  x = x.replacing(/.-./, with: "")
+
+  return "[" + x + "]"
+*/
+  return cleanAWKCharacterClass(s)
+}
+
+func cleanAWKCharacterClass(_ s: String) -> String {
+    let chars = Array(s)
+    var out: [Character] = []
+
+    var i = 0
+    while i < chars.count {
+        if i + 2 < chars.count,
+           chars[i + 1] == "-",
+           chars[i] != "[",
+           chars[i + 2] != "]"
+        {
+            let a = chars[i]
+            let b = chars[i + 2]
+
+            let av = a.unicodeScalars.first!.value
+            let bv = b.unicodeScalars.first!.value
+
+            if av > bv {
+                // invalid range: discard both endpoints and '-'
+                i += 3
+                continue
+            }
+        }
+
+        out.append(chars[i])
+        i += 1
+    }
+
+    return String(out)
 }
