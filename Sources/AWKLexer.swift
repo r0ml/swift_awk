@@ -94,7 +94,7 @@ struct AWKLexer {
     guard let last else { return true }
     switch last {
       case .number, .string, .regexLiteral,
-          .variable, .callRef, .varnf, .bltin,
+          .variable, .callRef, /* .varnf, */ .bltin,
           .rparen, .rbracket, .incrOp, .decrOp:
         return false
       default:
@@ -274,7 +274,7 @@ struct AWKLexer {
       case "END":                 return .xend
       case "func", "function":    return .funcKeyword
         // Special variable
-      case "NF":                  return .varnf
+//      case "NF":                  return .varnf
         // Control flow
       case "break":               return .kwBreak
       case "continue":            return .kwContinue

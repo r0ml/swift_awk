@@ -85,7 +85,7 @@ extension RuntimeState {
         }
         
       case .forIn(let varName, let arrName, let body):
-        let arrCell = resolveVar(arrName)
+        let arrCell = try resolveVar(arrName, nil)
         guard arrCell is Dictionary else { return }
         
         // Snapshot keys to allow modification during iteration
@@ -146,16 +146,17 @@ extension RuntimeState {
         
         // --- Variables ---
       case .variable(let name):
-        return resolveVar(name)
-        
+        return try resolveVar(name, nil)
+
       case .argument(let i):
         if let frame = callStack.last, i < frame.cells.count { return frame.cells[i] }
         throw AWKRuntimeError("function argument \(i) out of range")
         
-      case .varnf:
+/*      case .varnf:
         // should be  fldbld()
         ensureFields()
         return symtab["NF"]!
+  */
         
       case .field(let e):
         let n = Int(try eval(e).getNumber())
@@ -165,8 +166,7 @@ extension RuntimeState {
         return c
         
       case .element(let name, let keys):
-        let (rr, _) = try resolveElement(name: name, keys: keys)
-        return rr
+        return try resolveElement(name: name, keys: keys, nil)
         
         // --- Assignment ---
       case .assign(let op, let lv, let rhs):
@@ -295,31 +295,27 @@ extension RuntimeState {
         
         // --- Increment / decrement ---
       case .preIncrement(let lv):
-        let (c, n, x) = try evalLValue(lv)
-        let k = ValueCell(number: c.getNumber() + 1)
-        try storeLValue(lv, k, n, x)
-        return k
-        
+        return try evalLValue(lv) { c in
+          return ValueCell(number: c.getNumber() + 1)
+        }
+
       case .preDecrement(let lv):
-        let (c, n, x) = try evalLValue(lv)
-        let k = ValueCell(number: c.getNumber() - 1)
-        try storeLValue(lv, k, n, x)
-        return k
-        
+        return try evalLValue(lv) { c in
+          return ValueCell(number: c.getNumber() - 1)
+        }
+
       case .postIncrement(let lv):
-        let (c, n, x) = try evalLValue(lv)
-        let old = c.getNumber()
-        let k = ValueCell(number: old + 1)
-        try storeLValue(lv, k, n, x)
-        return c
-        
+        return try evalLValue(lv) { c in
+          let old = c.getNumber()
+          return ValueCell(number: old + 1)
+        }
+
       case .postDecrement(let lv):
-        let (c, n, x) = try evalLValue(lv)
-        let old = c.getNumber()
-        let k = ValueCell(number: old - 1)
-        try storeLValue(lv, k, n, x)
-        return c
-        
+        return try evalLValue(lv) { c in
+          let old = c.getNumber()
+          return ValueCell(number: old - 1)
+        }
+
         // --- User-defined function call ---
       case .userCall(let name, let args):
         return try execUserCall(name: name, argExprs: args)

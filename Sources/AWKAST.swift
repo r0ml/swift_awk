@@ -94,7 +94,7 @@ indirect enum Expression {
   // Variables and field access
   case variable(String)
   case argument(Int)                   // function formal parameter by index
-  case varnf                           // $NF
+//  case varnf                           // $NF
   case field(Expression)              // $expr
   case element(String, [Expression])  // arr[k] or arr[k1, k2, ...]
 
@@ -181,7 +181,7 @@ enum SubKind { case sub, gsub }
 indirect enum LValue {
   case variable(String)
   case argument(Int)
-  case varnf
+//  case varnf
   case field(Expression)
   case element(String, [Expression])
   case indirect(Expression)
@@ -194,7 +194,7 @@ extension LValue: Equatable {
     switch (lhs, rhs) {
       case (.variable(let a), .variable(let b)): return a == b
       case (.argument(let a), .argument(let b)): return a == b
-      case (.varnf, .varnf): return true
+//      case (.varnf, .varnf): return true
       default: return false   // field/element/indirect: skip deep equality for now
     }
   }
@@ -223,7 +223,7 @@ extension Expression {
     switch self {
       case .variable(let n):       return .variable(n)
       case .argument(let i):       return .argument(i)
-      case .varnf:                 return .varnf
+//      case .varnf:                 return .varnf
       case .field(let e):          return .field(e)
       case .element(let n, let k): return .element(n, k)
       case .indirect(let e):       return .indirect(e)
