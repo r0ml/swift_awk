@@ -285,8 +285,10 @@ extension RuntimeState {
         return ValueCell(number: ipow(base, exp))
         
       case .negate(let e):
-        return ValueCell(number: -(try eval(e).getNumber()))
-        
+        // 0-0 give me 0, but -0 gives me a negative 0
+        let j = 0-(try eval(e).getNumber())
+        return ValueCell(number: j  	)
+
       case .unaryPlus(let e):
         return ValueCell(number: try eval(e).getNumber())
         

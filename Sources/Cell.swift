@@ -103,7 +103,7 @@ class ValueCell : Cell {
 
   func asString(fmt: String = GlobalCONVFMT) -> String {
     if let sval { return sval }
-    if let nval { return cFormat(fmt, nval) }
+    if let nval { return awkFormat(fmt, nval) }
     return ""
   }
 
@@ -199,13 +199,20 @@ struct BuiltInNumber : Cell {
   }
 
     func asNumber() -> Double? { return getter() }
-    func asString(fmt: String) -> String { return cFormat( fmt, getter()) }
+    func asString(fmt: String) -> String { return awkFormat( fmt, getter()) }
 
   func length() -> Int {
     return asString().count
   }
 }
 
+func awkFormat( _ fmt : String, _ n : Double) -> String {
+  if n.rounded() == n {
+    return cFormat("%.30g", n)
+  } else {
+    return cFormat(fmt, n)
+  }
+}
 
 /* Cell:  all information about a variable or constant */
 

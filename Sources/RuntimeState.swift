@@ -147,7 +147,8 @@ extension RuntimeState {
     setsym("FILENAME", BuiltInString( { self.FILENAME }, { self.FILENAME = $0 } ))
     // FIXME: this doesn't get used because the parser handles assignment and reference to NF specially
     setsym("NF", BuiltInNumber( { self.ensureFields(); return self.NF }, { self.setNF(Int($0)) } ))
-    setsym("NR", BuiltInNumber( { self.NR }, { self.NR = $0 } ))
+    setsym("NR", BuiltInNumber( { self.NR }, {
+      self.NR = $0 } ))
     setsym("FNR", BuiltInNumber( { self.FNR }, { self.FNR = $0 } ))
     setsym("SUBSEP", BuiltInString( { self.SUBSEP }, { self.SUBSEP = $0 } ))
     setsym("RSTART", BuiltInNumber( { self.RSTART }, { self.RSTART = $0 } ))

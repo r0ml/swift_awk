@@ -128,7 +128,7 @@ struct AWKLexer {
         case "\\":
           // Line continuation: \ followed by \n (or \r\n) — skip both.
           if peek() == "\n" { eat(); eat() }
-          else if peek() == "\r" && peek(2) == "\n" { eat(); eat(); eat() }
+          else if peek() == "\r\n" { eat(); eat() }
           else {
             eat()
             throw LexError("bare '\\' at line \(line)")

@@ -284,6 +284,7 @@ extension RuntimeState {
         return frame.cells[i] // either the read, or the post update value
       }
     }
+
     let old = symtab[name] ?? EmptyCell()
     if let store {
       let res = try store(old)
@@ -357,8 +358,15 @@ extension RuntimeState {
   
   // C: assign() — run.c
   func execAssign(op: AssignOp, lv: LValue, rhs: Expression) throws -> Cell {
-    let rhsVal = try eval(rhs)
-    
+    var rhsVal = try eval(rhs)
+    // FIXME: bury this in Cell
+    // Gymnastics, because otherwise  x = NR (say) makes x the builtin, not the value of the builtin.
+    if rhsVal is BuiltInNumber {
+      rhsVal = ValueCell(number: rhsVal.getNumber())
+    } else if rhsVal is BuiltInString {
+      rhsVal = ValueCell(string: rhsVal.asString())
+    }
+
     // NF assignment requires special handling
 /*    if case .varnf = lv {
       let n = Int(rhsVal.getNumber())
