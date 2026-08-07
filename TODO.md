@@ -11,6 +11,9 @@ t.3.x -- also problem of field numeric/string confusion   x = $1; x > 1   gives 
 
 not reporting syntax errors.   E.g.   x=2;print $$x   {x=2; print @x}
 
+awk '{x = 1; print $(x+1) }' zzz  -- winds up printing the whole record instead of just the one field
+the lexer stops after print : 'x = 1 ; print $(x+1)'
+without braces, mucks up.  Different with braces
 
 Original:
 Wed Jan 22 02:10:35 MST 2020

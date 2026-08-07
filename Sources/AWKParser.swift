@@ -915,7 +915,7 @@ private func parsePrefix(_ stream: inout TokenStream, getlinePipe: Bool) throws 
         stream = stream.dropFirst()
         return .splitExpr(str, arrName, sep)
 
-    case .kwSprintf:
+      case .kwSprintf:
         stream = stream.dropFirst()
         guard stream.first == .lparen else { throw ParseError("Expected '(' after sprintf") }
         stream = stream.dropFirst()

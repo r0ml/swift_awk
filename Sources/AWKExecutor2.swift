@@ -93,7 +93,7 @@ extension RuntimeState {
         let keys = Array(aa.keys)
         for key in keys {
           guard let _ = aa[key] else { continue }
-          storeVar(varName, ValueCell(string: key))
+          try storeVar(varName, ValueCell(string: key))
           do { try exec(body) }
           catch AWKSignal.break_ { return }
           catch AWKSignal.continue_ { /* next key */ }
@@ -131,8 +131,7 @@ extension RuntimeState {
     switch expr {
         
         // --- Literals ---
-        // FIXME: constants don't get converted to numbers -- fields don't get converted to numbers on compare?
-      case .number(let n):
+       case .number(let n):
         return ValueCell(number: n)
         
       case .string(let s):

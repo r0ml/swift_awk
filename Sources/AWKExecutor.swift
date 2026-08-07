@@ -381,13 +381,17 @@ extension RuntimeState {
 
 
   // MARK: - Variable / element resolution
-  func storeVar(_ name : String, _ c : Cell) {
+  func storeVar(_ name : String, _ c : Cell) throws {
     // Check built-in variables first
     // Check current call frame
     if var frame = callStack.last {
       if let i = frame.paramNames.firstIndex(of: name) {
         frame.cells[i]=c
         callStack[callStack.endIndex-1] = frame
+        // FIXME: this is broken if the function callers uses a field or element value with a non-reentrant index
+        if i < frame.callLVals.count, let lv = frame.callLVals[i] {
+          try evalLValue(lv) { r in c }
+        }
         return
       }
     }
@@ -763,7 +767,7 @@ extension RuntimeState {
     // For simplicity, read from stdin
     guard let line = try awkGets() else {
 //    guard let line = readln(from: .standardInput) else {
-      return ValueCell(number: -1)
+      return ValueCell(number: 0)
     }
     if let lv {
       let _ = try evalLValue(lv) {_ in
@@ -913,7 +917,7 @@ extension RuntimeState {
     }
     
     // FIXME: does this need to reset whatever the "resolved" value is?
-    storeVar(arrName, Dictionary(dict: ee))
+    try storeVar(arrName, Dictionary(dict: ee))
     
     return ValueCell(number: parts.count)
   }
