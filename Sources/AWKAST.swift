@@ -161,7 +161,7 @@ indirect enum Expression {
   case indexExpr(Expression, Expression)                  // index(haystack, needle)
   case matchFuncExpr(Expression, Expression)              // match(str, re)
   case closeExpr(Expression)
-  case indirect(Expression)                               // @expr
+//  case indirect(Expression)                               // @expr
 }
 
 enum AssignOp: String {
@@ -180,7 +180,7 @@ enum SubKind { case sub, gsub }
 
 indirect enum LValue {
   case variable(String)
-  case argument(Int)
+//  case argument(Int)
 //  case varnf
   case field(Expression)
   case element(String, [Expression])
@@ -193,7 +193,7 @@ extension LValue: Equatable {
   static func == (lhs: LValue, rhs: LValue) -> Bool {
     switch (lhs, rhs) {
       case (.variable(let a), .variable(let b)): return a == b
-      case (.argument(let a), .argument(let b)): return a == b
+//      case (.argument(let a), .argument(let b)): return a == b
 //      case (.varnf, .varnf): return true
       default: return false   // field/element/indirect: skip deep equality for now
     }
@@ -222,11 +222,11 @@ extension Expression {
   func asLValue() -> LValue? {
     switch self {
       case .variable(let n):       return .variable(n)
-      case .argument(let i):       return .argument(i)
+//      case .argument(let i):       return .argument(i)
 //      case .varnf:                 return .varnf
       case .field(let e):          return .field(e)
       case .element(let n, let k): return .element(n, k)
-      case .indirect(let e):       return .indirect(e)
+//      case .indirect(let e):       return .indirect(e)
       default:                     return nil
     }
   }

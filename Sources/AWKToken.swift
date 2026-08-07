@@ -141,7 +141,7 @@ enum AWKToken: Equatable {
   case star                     // '*'
   case percent                  // '%'
   case notOp                    // '!'  (NOT / logical-not)
-  case atSign                   // '@'  (INDIRECT — gawk/one-true-awk extension)
+//  case atSign                   // '@'  (INDIRECT — gawk/one-true-awk extension)
   
   case eof
 }

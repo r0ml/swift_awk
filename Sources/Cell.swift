@@ -35,7 +35,6 @@ enum CellValue {
   case fval(Awkfloat)
   case arr([Cell])
   case dict([String:Cell])
-  //  case rec(String)
   case fld(String, Int)
   //  case fcn([Node])
   case builtinString(()->String, (String)->())
@@ -52,7 +51,9 @@ protocol Cell {
   func asString(fmt: String) -> String
   var isTrue : Bool { get }
   func length() -> Int
+  var isNumber : Bool { get }
 }
+
 
 extension Cell {
 
@@ -79,6 +80,12 @@ extension Cell {
 class ValueCell : Cell {
   var nval : Double?
   var sval : String?
+
+  var isNumber : Bool {
+    if nval != nil { return true }
+    if let sval, nil != Double(sval.trimmed()) { return true }
+    return false
+  }
 
   func asNumber() -> Double? {
     if let nval { return nval }
@@ -137,10 +144,13 @@ class EmptyCell : Cell {
   func asString(fmt: String) -> String { return "" }
   var isTrue = false
   func length() -> Int { return 0 }
+  var isNumber = false
 }
 
 class Dictionary : Cell {
   var dict : [String : Cell] = [:]
+
+  var isNumber = false
 
   init() {}
 
@@ -168,6 +178,11 @@ class BuiltInString : Cell {
     self.setter = setter
   }
 
+  var isNumber : Bool {
+    let n = self.getter()
+    return nil != Double(n.trimmed())
+  }
+
   var isTrue : Bool {
     if let n = asNumber(), n != 0 { return true }
     let s = asString()
@@ -193,6 +208,8 @@ struct BuiltInNumber : Cell {
   var getter : () -> Double
   var setter : (Double) -> ()
 
+  var isNumber = true
+  
   init( _ getter: @escaping ()->Double, _ setter: @escaping (Double)->() ) {
     self.getter = getter
     self.setter = setter

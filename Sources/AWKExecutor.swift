@@ -38,14 +38,132 @@ import Foundation
 // MARK: - AWK Executor
 
 extension RuntimeState {
-  
-  
+
+// this function was copied from sed (process.swift) where it is caslled mf_gets
+  /// this function gets the next line for processing from a list of files read sequentially
+  /// it is also the awk function GETLINE
+  func awkGets() throws -> String? {
+
+    /*
+     var inFile = FileDescriptor.standardInput.bytes.lines.makeAsyncIterator()
+     while let l = try await inFile.next() {
+
+     }
+     */
+
+    while !quit {
+      if nil != self.inp {
+        do {
+          if let got = self.inp!.next() {
+//            self.linenum += 1
+            return got
+          }
+          // reached EOF
+          mf_close_file()
+          continue
+        }
+        // FIXME: handle the 'inplace' option
+      } else {
+        // This is where the next file is opened
+        if self.filelist.isEmpty { return nil }
+        if let i = try mf_next_file() {
+          self.inp = i
+        } else {
+          break
+        }
+      }
+    }
+    mf_close_file()
+    return nil
+  }
+
+  // close the current file so I can move to the next one
+  // FIXME: does nothing?
+  func mf_close_file() {
+    self.inp = nil
+  }
+  // copied from sed (process.swift)
+  /// advances to the next input file in the list
+  func mf_next_file() throws(CmdErr) -> SyncRecordReader.Iterator? {
+    if self.filelist.isEmpty {
+      return nil
+    }
+
+    // get the first file and use it up
+    let fnam = self.filelist.removeFirst()
+    // open file
+    if fnam == "-"  || fnam == "/dev/stdin" {
+      FILENAME = "stdin"
+      FNR = 0
+      let k = FileDescriptor.standardInput.syncBytes
+      let j = k.records(rs: RS.first!)
+      return j.makeIterator()
+    } else {
+      do {
+        FILENAME = fnam
+        FNR = 0
+        return try FileDescriptor(forReading: fnam).syncBytes.records(rs: RS.first!).makeIterator()
+      } catch {
+        throw CmdErr(1, "\(fnam): \(error)")
+      }
+    }
+  }
+
+/*
+
+  func awkReadline() {
+      let paths = inputPaths.isEmpty ? ["-"] : inputPaths
+      outer: for path in paths {
+        let file: AWKFile
+        if path == "-" {
+          file = AWKFile(name: "-", mode: .read, handle: .standardInput)
+        } else {
+          guard let fh = FileHandle(forReadingAtPath: path) else {
+            fputs("awk: can't open \(path)\n", stderr)
+            continue
+          }
+          file = AWKFile(name: path, mode: .read, handle: fh)
+        }
+        FILENAME = path
+        FNR = 0
+
+        while let rec = file.readRecord(rs: RS) {
+          NR += 1; FNR += 1
+          record = rec
+
+          for (idx, rule) in program.rules.enumerated() {
+            do {
+              if try matchesPattern(rule.pattern, ruleIndex: idx) {
+                if rule.body.isEmpty {
+                  // no body → print $0
+                  try print_([.field(.number(0))], dest: nil)
+                } else {
+                  try execBlock(rule.body)
+                }
+              }
+            } catch AWKSignal.next { continue outer }
+            catch AWKSignal.nextFile { break }
+            catch AWKSignal.exit_(let code) {
+              exitCode = code
+              file.close()
+              try runEndBlocks(program)
+              return
+            }
+          }
+        }
+        file.close()
+      }
+    }
+*/
+
   // MARK: - Main entry point
   
   /// Run a parsed AWK program over the provided input files (or stdin if empty).
   // C: run() + getrec() loop — run.c / lib.c
-  func run(_ program: AWKProgram, inputPaths: [String] = []) throws {
+  func run(_ program: AWKProgram, inputPaths: [String] = []) async throws {
     // Populate function table
+    filelist = inputPaths
+    
     for fn in program.functions { functions[fn.name] = fn }
     
     // Set up ARGV / ARGC
@@ -73,6 +191,7 @@ extension RuntimeState {
     
     // --- Per-record body ---
     if !program.rules.isEmpty || !program.endRules.isEmpty {
+      /*
       let paths = inputPaths.isEmpty ? ["-"] : inputPaths
       outer: for path in paths {
         let file: AWKFile
@@ -87,8 +206,11 @@ extension RuntimeState {
         }
         FILENAME = path
         FNR = 0
-        
-        while let rec = file.readRecord(rs: RS) {
+        */
+    getr:
+      while let rec = try? awkGets() {
+
+//        while let rec = file.readRecord(rs: RS) {
           NR += 1; FNR += 1
           record = rec
           
@@ -102,19 +224,19 @@ extension RuntimeState {
                   try execBlock(rule.body)
                 }
               }
-            } catch AWKSignal.next { continue outer }
-            catch AWKSignal.nextFile { break }
+              // FIXME: why is AWKSignal.next different than nextFile?
+            } catch AWKSignal.next { continue getr }
+            catch AWKSignal.nextFile { mf_close_file();  break }
             catch AWKSignal.exit_(let code) {
               exitCode = code
-              file.close()
+              mf_close_file()
               try runEndBlocks(program)
               return
             }
           }
         }
-        file.close()
+ //       file.close()
       }
-    }
     
     // --- END blocks ---
     try runEndBlocks(program)
@@ -167,7 +289,7 @@ extension RuntimeState {
       case .variable(let name):
         return try resolveVar(name, store)
 
-      case .argument(let i):
+/*      case .argument(let i):
         guard var frame = callStack.last, i < frame.cells.count else {
           throw AWKRuntimeError("function argument \(i) out of range")
         }
@@ -179,6 +301,7 @@ extension RuntimeState {
           return res
         }
         return val
+ */
 /*
       case .varnf:
         // Assign to NF specially through a proxy cell that triggers setNF on write.
@@ -265,6 +388,7 @@ extension RuntimeState {
       if let i = frame.paramNames.firstIndex(of: name) {
         frame.cells[i]=c
         callStack[callStack.endIndex-1] = frame
+        return
       }
     }
     setsym(name, c)
@@ -517,7 +641,10 @@ extension RuntimeState {
     }
     // Evaluate actual arguments
     var cells: [Cell] = []
+    var lvals: [LValue?] = []
     for argExpr in argExprs {
+      let k = argExpr.asLValue()
+      lvals.append(k)
       let c = try eval(argExpr)
       // FIXME: did I muck this up?
       cells.append(c)
@@ -527,18 +654,25 @@ extension RuntimeState {
     // Extra locals beyond defined params
     // (one-true-awk uses extra params as local variables)
     
-    let frame = CallFrame(funcName: name, paramNames: fn.params, cells: cells)
+    let frame = CallFrame(funcName: name, paramNames: fn.params, cells: cells, callLVals: lvals)
     callStack.append(frame)
     defer { callStack.removeLast() }
-    
+
+    var retval : Cell
     do {
       try execBlock(fn.body)
+      retval = callStack.last?.retval ?? EmptyCell()
     } catch AWKSignal.`return`(let val) {
-      return val
+      retval = val
     }
-    return callStack.last?.retval ?? EmptyCell()
+    // Before returning, if any of the args are variables, then if the corresponding frame values have
+    // been updated, the variable argumnet must be updated
+    // Alternatively, the call frame can handle the update when it happens
+//    for (lv, c) in zip(lvals, callStack.last!.cells) {
+
+    return retval
   }
-  
+
   // MARK: - Builtin function call
   
   // C: bltin() — run.c
@@ -624,10 +758,11 @@ extension RuntimeState {
   // MARK: - Getline
   
   // C: awkgetline() — run.c
-  func execGetline(lv: LValue?) throws -> Cell {
+  func execGetline(lv: LValue?)  throws -> Cell {
     // Bare getline — read next record from current input (stdin)
     // For simplicity, read from stdin
-    guard let line = readln(from: .standardInput) else {
+    guard let line = try awkGets() else {
+//    guard let line = readln(from: .standardInput) else {
       return ValueCell(number: -1)
     }
     if let lv {

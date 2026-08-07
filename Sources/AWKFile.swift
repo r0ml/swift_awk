@@ -32,6 +32,128 @@ import Foundation
 
 enum AWKFileMode { case read, write, append, outputPipe, inputPipe }
 
+extension FileDescriptor {
+  public var syncBytes : SyncByteStream { get  { SyncByteStream(fd: self) } }
+}
+
+
+public struct SyncByteStream: Sequence {
+  public typealias Element = UInt8
+  let fd: FileDescriptor
+  let bufferSize: Int = 4096
+  
+  //  public var lines : AsyncLineReader { get { AsyncLineReader(byteStream: self) } }
+  //  public func lines(_ withEOL : Bool = false, encoding: any Unicode.Encoding.Type = UTF8.self) -> AsyncLineReader {
+  //    return AsyncLineReader(byteStream: self, retEOL:  withEOL, encoding: encoding)
+  //  }
+  //  public var linesNLX : AsyncLineSequenceX { get { AsyncLineSequenceX(base: self) } }
+  
+  public struct Iterator: IteratorProtocol {
+    public typealias Element = UInt8
+    
+    let fd: FileDescriptor
+    var buffer = [UInt8]()
+    var index = 0
+    let bufferSize: Int
+    
+    public mutating func next() -> UInt8? {
+      if index >= buffer.count {
+        var temp = [UInt8](repeating: 0, count: bufferSize)
+        do {
+          let bytesRead = try temp.withUnsafeMutableBytes {
+            try fd.read(into: $0)
+          }
+          
+          guard bytesRead > 0 else { return nil }
+          buffer = Array(temp.prefix(bytesRead))
+          index = 0
+        } catch(let e) {
+          // print("reading: \(e.localizedDescription)")
+          return nil
+        }
+      }
+      
+      let byte = buffer[index]
+      index += 1
+      return byte
+    }
+  }
+  
+  public func makeIterator() -> Iterator {
+    Iterator(fd: fd, bufferSize: bufferSize)
+  }
+  
+  public func records(rs : Character) -> SyncRecordReader {
+    SyncRecordReader(byteStream: self, rs: rs.asciiValue!)
+  }
+  
+}
+
+
+
+// needs to be a class -- otherwise the struct gets copied and it doesn't work
+public struct SyncRecordReader: Sequence {
+  public typealias Element = String
+  let byteStream: SyncByteStream
+  var encoding : any Unicode.Encoding.Type = UTF8.self
+  var rs : UInt8 = "\n".first!.asciiValue!
+
+  public init(byteStream: SyncByteStream, rs: UInt8 = "\n".first!.asciiValue!) {
+    self.byteStream = byteStream
+    self.rs = rs
+  }
+  
+  public struct Iterator: IteratorProtocol {
+    var byteIterator: SyncByteStream.Iterator
+    var buffer = [UInt8]()
+    var encoding : any Unicode.Encoding.Type = UTF8.self
+    var rs : UInt8 // = "\n".first!.asciiValue!
+
+    public mutating func next() -> String? {
+      var go = false
+      while let byte = byteIterator.next() {
+        go = true
+        if byte == rs {
+          break
+        } else {
+          buffer.append(byte)
+        }
+      }
+
+      guard go else { return nil }
+      var line : String?
+      switch encoding {
+        case is ISOLatin1.Type:
+          line = String(validating: buffer, as: ISOLatin1.self )
+        case is UTF16.Type:
+          let buff = buffer.withUnsafeBytes { $0.load(as: [UInt16].self) }
+          line = String(validating: buff, as: UTF16.self )
+        case is UTF32.Type:
+          let buff = buffer.withUnsafeBytes { $0.load(as: [UInt32].self) }
+          line = String(validating: buff, as: UTF32.self )
+        case is UTF8.Type:
+          fallthrough
+        default:
+          line = String(validating: buffer, as: UTF8.self )
+      }
+      guard let line else {
+        line = String(validating: buffer, as: ISOLatin1.self )
+        buffer.removeAll()
+        return line
+      }
+      buffer.removeAll()
+      return line
+    }
+  }
+
+  public func makeIterator() -> Iterator {
+    Iterator(byteIterator: byteStream.makeIterator(), encoding: encoding, rs: rs)
+  }
+}
+
+
+
+// FIXME: get rid of this 
 final class AWKFile {
   let name: String
   let mode: AWKFileMode
@@ -93,3 +215,4 @@ final class AWKFile {
     }
   }
 }
+

@@ -243,7 +243,7 @@ extension RuntimeState {
         // --- Getline ---
       case .getline(let lv):
         return try execGetline(lv: lv)
-        
+
       case .getlineFrom(let lv, let src):
         let path = try eval(src).asString()
         let file = try fileFor(name: path, mode: .read)
@@ -309,16 +309,20 @@ extension RuntimeState {
         }
 
       case .postIncrement(let lv):
-        return try evalLValue(lv) { c in
-          let old = c.getNumber()
+        var old : Double = 0
+        try evalLValue(lv) { c in
+          old = c.getNumber()
           return ValueCell(number: old + 1)
         }
+        return ValueCell(number: old)
 
       case .postDecrement(let lv):
+        var old : Double = 0
         return try evalLValue(lv) { c in
-          let old = c.getNumber()
+          old = c.getNumber()
           return ValueCell(number: old - 1)
         }
+        return ValueCell(number: old)
 
         // --- User-defined function call ---
       case .userCall(let name, let args):
@@ -373,11 +377,12 @@ extension RuntimeState {
         closeFile(name: name)
         return ValueCell(number: 0)
         
-      case .indirect(let e):
+ /*     case .indirect(let e):
         // @expr or $$n — treat as field
         let n = Int(try eval(e).getNumber())
         let s = getField(n)
         return ValueCell(string: s)
+  */
     }
   }
   

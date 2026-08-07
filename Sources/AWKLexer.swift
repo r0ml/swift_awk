@@ -379,7 +379,7 @@ struct AWKLexer {
       case ",":  return .comma
       case "?":  return .question
       case ":":  return .colon
-      case "@":  return .atSign
+//      case "@":  return .atSign
       case "{":
         braceCnt += 1
         return .lbrace

@@ -32,11 +32,15 @@ struct CallFrame {
   let funcName: String
   let paramNames: [String]   // formal parameter names
   var cells: [Cell]       // one cell per parameter + extra locals
+  var callLVals: [LValue?]
   var retval: Cell = EmptyCell()
 }
 
 actor RuntimeState {
   static let shared = RuntimeState()
+
+// when this goes to "true" I need to wrap it up -- copied from sed
+  var quit = false
 
   var curpfile = 0
   var symtab : [String : Cell] = [:]
@@ -58,9 +62,23 @@ actor RuntimeState {
     }
   }
 
+    // stuff for reading input (not program files)
+  var inp : SyncRecordReader.Iterator?
+  // here rather than in PeekableAsyncIterator because it continues across files
+  // different than lineno below which is the line number of the program
+  // this is the line number of the input
+//  var linenum : Int = 0
+
+//  var oldfname : String?
+//  var tmpfname : FilePath?
+
+    // instead of inputFiles and openFiles below?
+  var filelist : [String] = []
+
+
   var dbg = 0
   
-  var yyin : FileDescriptor?
+//  var yyin : FileDescriptor?
   var srand_seed : UInt32 = 1
   var inputFS : String = " "
   var lineno : Int = 0    // line number in awk program
@@ -77,8 +95,9 @@ actor RuntimeState {
   var functions: [String: FunctionDefinition] = [:]
 
   // MARK: I/O
-  var openFiles: [AWKFile] = []
-  var inputFiles: [AWKFile] = []   // queue of input files/stdin
+  // FIXME: get rid of these?
+    var openFiles: [AWKFile] = []
+//  var inputFiles: [AWKFile] = []   // queue of input files/stdin
 
   // MARK: Range-pattern state
   var pairstack: [Bool] = []

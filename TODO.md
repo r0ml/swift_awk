@@ -9,6 +9,8 @@ t.3 -- comparison of $1 == "5" where $1 is a field like "5xxx" gets confused abo
        stick with a string comparison
 t.3.x -- also problem of field numeric/string confusion   x = $1; x > 1   gives different answers
 
+not reporting syntax errors.   E.g.   x=2;print $$x   {x=2; print @x}
+
 
 Original:
 Wed Jan 22 02:10:35 MST 2020

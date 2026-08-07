@@ -121,7 +121,9 @@ enum AWKRuntime {
   // C: comparison logic in relop() — run.c
   static func compare(_ x: Cell, _ y: Cell, convfmt: String = "%.6g") -> Int {
     // FIXME: was passing convfmt
-    if let xx = x.asNumber(), let yy = y.asNumber() {
+    if x.isNumber && y.isNumber {
+      let xx = x.getNumber()
+      let yy = y.getNumber()
       let d = xx - yy
       return d < 0 ? -1 : (d > 0 ? 1 : 0)
     }
