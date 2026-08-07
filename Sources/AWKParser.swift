@@ -26,6 +26,8 @@ THIS SOFTWARE.
 ****************************************************************/
 
 // AWK grammar expressed as parser combinators + a Pratt parser for expressions.
+import Darwin
+
 // Direct translation of awkgram.y (one-true-awk).
 //
 // Grammar rules appear as private functions returning Parser<T>.
@@ -115,6 +117,7 @@ private func program() -> Parser<AWKProgram> {
                 try skipSep().parse(&stream)
             } catch {
                 stream = saved
+                fputs("awk: parse error: \(error)\n", stderr)
                 break
             }
         }
@@ -444,11 +447,14 @@ private func parsePrintStmt() -> Parser<Statement> {
                 let list = try sepBy1(lazy(ppattern()), sep: comma_()).parse(&stream)
                 if stream.first == .rparen {
                     stream = stream.dropFirst()
-                    // If followed by a redirect operator, treat parens as grouping the args
-                    if isRedirectOp(stream.first) {
+                    if isRedirectOp(stream.first) || isStEnd(stream.first) {
+                        // (plist) > redirect  or  (plist) at end of statement
                         args = list
                     } else {
-                        args = list
+                        // Something like (a > b) ? x : y — the ')' closed a grouped
+                        // expression, not a print-arg list.  Fall back and re-parse
+                        // from before the '(' so the whole thing is one expression.
+                        throw ParseError("not a grouped arg list")
                     }
                 } else {
                     throw ParseError("not a simple plist")
