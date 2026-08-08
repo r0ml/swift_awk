@@ -29,8 +29,7 @@ THIS SOFTWARE.
 // Corresponds to tran.c, the Cell/Array infrastructure from awk.h,
 // and the I/O management from run.c.
 
-import Foundation
-import CMigration 
+import CMigration
 
 /// Swift equivalent of the C setjmp/longjmp control-flow mechanism.
 /// Each case is thrown and caught by the appropriate executor level.
@@ -135,27 +134,32 @@ enum AWKRuntime {
   // C: matchop() — run.c  (regex execution via pmatch() — b.c)
   static func match(pattern: String, in str: String) throws -> Range<String.Index>? {
     let re = try makeRegex(pattern)
-    return re.firstMatch(in: str, range: NSRange(str.startIndex..., in: str))
-      .flatMap { Range($0.range, in: str) }
+    return try re.firstMatch(in: str)?.range //  .flatMap { Range($0.range, in: str) }
   }
   
   // Like match() but returns the range of the full match (for RSTART/RLENGTH).
   // C: pmatch() — b.c
   static func pmatch(pattern: String, in str: String) throws
-  -> (range: Range<String.Index>, nsRange: NSRange)?
+  -> Range<String.Index>?
   {
     let re = try makeRegex(pattern)
-    let ns = str as NSString
+    guard let match = str.firstMatch(of: re) else {
+        return nil
+    }
+    return match.range
+
+/*    let ns = str as NSString
     let nsRange = NSRange(location: 0, length: ns.length)
     guard let m = re.firstMatch(in: str, range: nsRange) else { return nil }
     guard let r = Range(m.range, in: str) else { return nil }
     return (r, m.range)
+ */
   }
   
   // C: makedfa() — b.c
-  static func makeRegex(_ pattern: String) throws -> NSRegularExpression {
+  static func makeRegex(_ pattern: String) throws -> Regex<AnyRegexOutput> {
     do {
-      return try NSRegularExpression(pattern: fixre(pattern), options: [])
+      return try Regex(fixre(pattern))
     } catch {
       throw AWKRuntimeError("invalid regex /\(pattern)/: \(error.localizedDescription)")
     }

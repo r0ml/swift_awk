@@ -823,13 +823,14 @@ extension RuntimeState {
       var result : String = str   // default: no match leaves target unchanged
 
       let re = try AWKRuntime.makeRegex(pat)
-      let ns = str as NSString
-      let range = NSRange(location: 0, length: ns.length)
+      let ns = str
+      let range = str.startIndex ..< str.endIndex
 
       switch kind {
         case .sub:
-          if let m = re.firstMatch(in: str, range: range) {
-            let matched = ns.substring(with: m.range)
+          // FIXME: do I need the range?
+          if let m = try re.firstMatch(in: str[range]) {
+            let matched = ns[m.range]
             let replacement = AWKRuntime.applyReplacement(repl, matched: Substring(matched))
             result = ns.replacingCharacters(in: m.range, with: replacement)
             // FIXME: if the cell is a symbol, then a didSet could deal with updating the symbol value
@@ -838,8 +839,9 @@ extension RuntimeState {
         case .gsub:
           result = ""
           var lastEnd = str.startIndex
-          for m in re.matches(in: str, range: range) {
-            guard let r = Range(m.range, in: str) else { continue }
+          for m in str[range].matches(of: re) {
+//            guard let r = Range(m.range, in: str) else { continue }
+            let r = m.range
             result += str[lastEnd..<r.lowerBound]
             let matched = str[r]
             result += AWKRuntime.applyReplacement(repl, matched: matched)

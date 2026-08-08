@@ -364,9 +364,9 @@ extension RuntimeState {
       case .matchFuncExpr(let str, let reExpr):
         let s = try eval(str).asString()
         let pat = try regexPattern(reExpr)
-        if let (_, nsRange) = try AWKRuntime.pmatch(pattern: pat, in: s) {
-          let start = Double(nsRange.location + 1)
-          let len   = Double(nsRange.length)
+        if let range = try AWKRuntime.pmatch(pattern: pat, in: s) {
+          let start = Double(s.distance(from: s.startIndex, to: range.lowerBound) + 1)
+          let len   = Double(s.distance(from: range.lowerBound, to: range.upperBound))
           RSTART  = start
           RLENGTH = len
           return ValueCell(number: start)

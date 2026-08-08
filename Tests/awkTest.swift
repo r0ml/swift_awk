@@ -12,8 +12,9 @@ import ShellTesting
     let j = try? awkTest().geturl()
     let k = try? j!.listDirectory().sorted()
 
-    // t.randk is based on random() -- which is replaced by arc4random() -- so doesn't match
-    let k2 = (k!.filter { $0.hasPrefix("expected.") }).filter { !($0 == "expected.t.randk") }
+    let k2 = (k!.filter { $0.hasPrefix("expected.") })
+    // t.randk and p.48b are based on random() -- which is replaced by arc4random() -- so don't match
+      .filter { !($0 == "expected.t.randk" || $0 == "expected.p.48b") }
     return k2
   }
 
