@@ -431,7 +431,9 @@ extension RuntimeState {
       fldtab = s.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
     } else if FS.count == 1 {
       let sep = Character(FS)
-      fldtab = s.split(separator: sep, omittingEmptySubsequences: false).map(String.init)
+      if s.isEmpty { fldtab = [] } else {
+        fldtab = s.split(separator: sep, omittingEmptySubsequences: false).map(String.init)
+      }
     } else if FS.isEmpty {
       fldtab = s.map { String($0) }
     } else {

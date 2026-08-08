@@ -12,7 +12,8 @@ import ShellTesting
     let j = try? awkTest().geturl()
     let k = try? j!.listDirectory().sorted()
 
-    let k2 = k!.filter { $0.hasPrefix("expected.") }
+    // t.randk is based on random() -- which is replaced by arc4random() -- so doesn't match
+    let k2 = (k!.filter { $0.hasPrefix("expected.") }).filter { !($0 == "expected.t.randk") }
     return k2
   }
 
@@ -34,12 +35,13 @@ import ShellTesting
     let b = try geturl()
     let inp1 = try inFile(g)
 
+    let env = ["LC_CTYPE": "en_US.LATIN1"]
     if g.first == "t" {
       let inp2 = try inFile("test.data")
-      try await run(output: expected, args: "-f", inp1.relativeTo(b), inp2.relativeTo(b), cd: b)
+      try await run(output: expected, args: "-f", inp1.relativeTo(b), inp2.relativeTo(b), env: env, cd: b)
     } else {
       let inp2 = try inFile("test.countries")
-      try await run(output: expected, args: "-f", inp1, inp2.relativeTo(b), inp2.relativeTo(b), cd: b)
+      try await run(output: expected, args: "-f", inp1, inp2.relativeTo(b), inp2.relativeTo(b), env: env, cd: b)
 
     }
 

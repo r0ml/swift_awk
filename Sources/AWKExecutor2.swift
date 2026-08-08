@@ -186,7 +186,11 @@ extension RuntimeState {
       case .equal(let a, let b):
         let x = try eval(a), y = try eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) == 0 ? 1 : 0)
-        
+
+      case .notNull(let a):
+        let t = try eval(a).isTrue
+        return ValueCell(number: t ? 1 : 0)
+
       case .notEqual(let a, let b):
         let x = try eval(a)
         let y = try eval(b)
@@ -442,12 +446,12 @@ extension RuntimeState {
         case "A": result += cFormat( spec + "A", arg.getNumber())
         case "s": result += cFormat( spec + "s", arg.asString(fmt: OFMT))
         case "c":
-          if let n = Int(arg.asString()) {
-            let nn = n & 0xFF
-            if nn != 0 { result += cFormat(spec + "c", nn) }
+          if arg.isNumber && arg.getNumber().rounded() == arg.getNumber() {
+            let nn = UInt(arg.getNumber()) & 0xFF
+            if nn != 0 { result += cFormat(spec + "c", UInt8(nn)) }
           } else {
             let s = arg.asString()
-            result += cFormat(spec + "c", s.first.flatMap { $0.asciiValue }.map(Int.init) ?? 0)
+            result += cFormat(spec + ".1s", s)
           }
         default: result.append(type)
       }

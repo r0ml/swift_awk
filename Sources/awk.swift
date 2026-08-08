@@ -65,7 +65,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
     func parseOptions() async throws(CmdErr) -> CommandOptions {
 
-//    setlocale(LC_CTYPE, "");
+    setlocale(LC_CTYPE, "");
 //    setlocale(LC_COLLATE, "");
 //    setlocale(LC_NUMERIC, "C"); /* for parsing cmdline & prog */
 //    cmdname = argv[0];
@@ -158,7 +158,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
  //   symtab = makesymtab(NSYMTAB/NSYMTAB);
 
     if options.lexprog == nil {  // no -f; first argument is program
-      if (options.args.count <= 1) {
+      if (options.args.count < 1) {
         if options.dbg != 0 {
           exit(0);
         }
@@ -236,7 +236,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
        return(errorflag);
        */
     } catch(let e) {
-      throw CmdErr(2, "\(e.localizedDescription)")
+      throw CmdErr(2, "\(e)")
     }
   }
 

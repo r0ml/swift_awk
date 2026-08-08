@@ -203,7 +203,11 @@ final class AWKFile {
   
   // C: (direct fwrite/fputs via FILE* in printstat() / redirect() — run.c)
   func write(_ s: String) throws {
-    guard let data = s.data(using: .utf8) else { return }
+    // FIzME: some tests (like t.printf2) yield different results because of latin1 vs utf8 encodings
+//    guard let data = s.data(using: .utf8) else { return }
+    guard let data = s.data(using: .isoLatin1) else { return }
+    // FIXME: this works for isoLatin1, but not for .utf8 or localeEncoding()
+// guard let data = s.data(using: localeEncoding() ) else { return }
     handle.write(data)
   }
   

@@ -717,8 +717,10 @@ extension RuntimeState {
         return ValueCell(number: code)
         
       case .rand:
-        return ValueCell(number: Double(arc4random()) / Double(UInt32.max) + 1)
-        
+        let r = arc4random()
+//        let r2 = Darwin.random()
+        return ValueCell(number: Double(r) / Double(UInt32.max) )
+
       case .srand:
         let old = srand_seed
         let seed: Double
@@ -818,7 +820,7 @@ extension RuntimeState {
     try evalLValue(target) { targetCell in
       let str = targetCell.asString()
 
-      var result : String = ""
+      var result : String = str   // default: no match leaves target unchanged
 
       let re = try AWKRuntime.makeRegex(pat)
       let ns = str as NSString
@@ -891,31 +893,32 @@ extension RuntimeState {
     }
     
     let parts: [String]
-    if fs == " " {
-      parts = s.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-    } else if fs.count == 1 && fs != "" {
-      let sep = Character(fs)
-      parts = s.split(separator: sep, omittingEmptySubsequences: false).map(String.init)
-    } else if fs.isEmpty {
-      parts = s.map { String($0) }
-    } else {
-
-      if let re = try? Regex<Substring>(fixre(fs)) {
-//          parts = awkSplit(s, by: re).map { String($0) }
-        parts = substringsBetweenMatches(in: s, matching: re).map { String($0) }
+    if s.isEmpty { parts = [] } else {
+      if fs == " " {
+        parts = s.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+      } else if fs.count == 1 && fs != "" {
+        let sep = Character(fs)
+        parts = s.split(separator: sep, omittingEmptySubsequences: false).map(String.init)
+      } else if fs.isEmpty {
+        parts = s.map { String($0) }
       } else {
-        print("not a valid regex: \(fs)")
-        parts = []
+        if let re = try? Regex<Substring>(fixre(fs)) {
+          //          parts = awkSplit(s, by: re).map { String($0) }
+          parts = substringsBetweenMatches(in: s, matching: re).map { String($0) }
+        } else {
+          print("not a valid regex: \(fs)")
+          parts = []
+        }
+      }
+
+      for (i, p) in parts.enumerated() {
+        let key = String(i + 1)
+        // FIXME: can cache the convertability of strings to numbers for performance
+        let c = ValueCell(string: p)
+        ee[key] = c
       }
     }
 
-    for (i, p) in parts.enumerated() {
-      let key = String(i + 1)
-      // FIXME: can cache the convertability of strings to numbers for performance
-      let c = ValueCell(string: p)
-      ee[key] = c
-    }
-    
     // FIXME: does this need to reset whatever the "resolved" value is?
     try storeVar(arrName, Dictionary(dict: ee))
     
@@ -946,17 +949,79 @@ func substringsBetweenMatches(
     return result
 }
 
-func fixre(_ s  : String) -> String {
-//  return s.replacingOccurrences(of: "-", with: "\\-")
-/*  var x = s
-  x.removeFirst()
-  x.removeLast()
-  // FIXME: what probably happens here is that invalid ranges get replaced, but valid ones don't
-  x = x.replacing(/.-./, with: "")
+// Walk an arbitrary regex string, find every bracket expression [...], and
+// pass each one through cleanAWKCharacterClass so that invalid descending
+// ranges (e.g. r-U) are stripped.  Everything outside bracket expressions —
+// including escape sequences — is passed through unchanged.
+func fixre(_ s: String) -> String {
+    var result = ""
+    var i = s.startIndex
 
-  return "[" + x + "]"
-*/
-  return cleanAWKCharacterClass(s)
+    while i < s.endIndex {
+        let ch = s[i]
+
+        // Escape sequence: pass both characters through unchanged.
+        if ch == "\\" {
+            result.append(ch)
+            let ni = s.index(after: i)
+            if ni < s.endIndex {
+                result.append(s[ni])
+                i = s.index(after: ni)
+            } else {
+                i = ni
+            }
+            continue
+        }
+
+        // Start of a bracket expression.
+        if ch == "[" {
+            var classStr = "["
+            var j = s.index(after: i)
+
+            // Optional negation caret.
+            if j < s.endIndex && s[j] == "^" {
+                classStr.append("^")
+                j = s.index(after: j)
+            }
+
+            // Collect the contents, remembering that the very first character
+            // after "[" or "[^" may be "]" and is treated as a literal member,
+            // not as the closing bracket.
+            var firstInClass = true
+            while j < s.endIndex {
+                let c = s[j]
+                if c == "]" && !firstInClass {
+                    classStr.append("]")
+                    j = s.index(after: j)
+                    break
+                }
+                if c == "\\" {
+                    classStr.append(c)
+                    let nj = s.index(after: j)
+                    if nj < s.endIndex {
+                        classStr.append(s[nj])
+                        j = s.index(after: nj)
+                    } else {
+                        j = nj
+                    }
+                    firstInClass = false
+                    continue
+                }
+                classStr.append(c)
+                j = s.index(after: j)
+                firstInClass = false
+            }
+
+            result.append(contentsOf: cleanAWKCharacterClass(classStr))
+            i = j
+            continue
+        }
+
+        result.append(ch)
+        i = s.index(after: i)
+    }
+
+    return result
 }
 
 func cleanAWKCharacterClass(_ s: String) -> String {

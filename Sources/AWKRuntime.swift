@@ -155,7 +155,7 @@ enum AWKRuntime {
   // C: makedfa() — b.c
   static func makeRegex(_ pattern: String) throws -> NSRegularExpression {
     do {
-      return try NSRegularExpression(pattern: pattern, options: [])
+      return try NSRegularExpression(pattern: fixre(pattern), options: [])
     } catch {
       throw AWKRuntimeError("invalid regex /\(pattern)/: \(error.localizedDescription)")
     }

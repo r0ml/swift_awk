@@ -15,6 +15,10 @@ awk '{x = 1; print $(x+1) }' zzz  -- winds up printing the whole record instead 
 the lexer stops after print : 'x = 1 ; print $(x+1)'
 without braces, mucks up.  Different with braces
 
+t.gsub4 gives invalid regex  // need to figure out how to use  cleanAWKCharacterClass  on string being passed as regex
+
+t.pp and t.pp1 fail because range patterns are supremely broken
+
 Original:
 Wed Jan 22 02:10:35 MST 2020
 ============================

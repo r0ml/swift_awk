@@ -107,7 +107,8 @@ indirect enum Expression {
   // Logical
   case logicalOr(Expression, Expression)
   case logicalAnd(Expression, Expression)
-
+  case notNull(Expression)
+  
   // Comparison
   case equal(Expression, Expression)
   case notEqual(Expression, Expression)
@@ -213,7 +214,7 @@ extension Expression {
           .inArray, .inArrayTuple:
         return self
       default:
-        return .notEqual(self, .number(0))
+        return .notNull(self)
     }
   }
 

@@ -328,3 +328,24 @@ extension RuntimeState {
   }
 
 }
+
+
+func localeEncoding() -> String.Encoding {
+    let codeset = String(cString: nl_langinfo(CODESET))
+
+    switch codeset.uppercased() {
+    case "UTF-8":
+        return .utf8
+
+    case "ISO-8859-1", "ISO8859-1", "LATIN1":
+        return .isoLatin1
+
+    case "US-ASCII", "ASCII":
+        return .ascii
+
+    default:
+        // You'll need to handle other codesets if you want
+        // complete locale support.
+        return .utf8
+    }
+}
