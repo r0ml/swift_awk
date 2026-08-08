@@ -31,7 +31,8 @@ THIS SOFTWARE.
 
 import CMigration
 import Darwin
-import Foundation
+import Dispatch
+import Synchronization
 
 // MARK: - Call frame
 
@@ -708,14 +709,18 @@ extension RuntimeState {
       case .system:
         let cmd = try eval(args[0]).asString()
         fflush(stdout)
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", cmd]
-        let code: Int
-        do { try proc.run(); proc.waitUntilExit(); code = Int(proc.terminationStatus) }
-        catch { code = -1 }
-        return ValueCell(number: code)
-        
+        let sem = DispatchSemaphore(value: 0)
+        let result = Mutex<Int>(-1)
+        Task {
+          let p = DarwinProcess()
+          if let r = try? await p.run("/bin/sh", args: "-c", cmd) {
+            result.withLock { $0 = Int(r.code) }
+          }
+          sem.signal()
+        }
+        sem.wait()
+        return ValueCell(number: Double(result.withLock { $0 }))
+
       case .rand:
         let r = arc4random()
 //        let r2 = Darwin.random()
@@ -796,12 +801,12 @@ extension RuntimeState {
   }
   
   // C: readrec() — lib.c
-  func readln(from fh: FileHandle) -> String? {
+  func readln(from fh: FileDescriptor) throws -> String? {
     // Inefficient but simple: read byte-by-byte until RS
     var line = ""
     let sep: UInt8 = RS.first.map { $0.asciiValue ?? 10 } ?? 10
     while true {
-      let data = fh.availableData
+      let data = try fh.readAvailableBytes()
       guard !data.isEmpty else { return line.isEmpty ? nil : line }
       for byte in data {
         if byte == sep { return line }
