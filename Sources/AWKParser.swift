@@ -249,7 +249,6 @@ private func stmtList() -> Parser<[Statement]> {
 // C: stmt — awkgram.y
 private func stmt() -> Parser<Statement> {
     Parser { stream in
-        try skipSep().parse(&stream)
         switch stream.first {
         case .kwBreak:
             stream = stream.dropFirst(); try stEnd().parse(&stream); return .break_
