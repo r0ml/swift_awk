@@ -26,7 +26,6 @@ THIS SOFTWARE.
 ****************************************************************/
 
 import CMigration
-import Foundation
 
 // MARK: - I/O
 
@@ -157,26 +156,25 @@ public struct SyncRecordReader: Sequence {
 final class AWKFile {
   let name: String
   let mode: AWKFileMode
-  var handle: FileHandle
-  var process: Process? = nil
+  var handle: FileDescriptor
   var buffer: String = ""     // unread input buffer for line-at-a-time reading
   
-  init(name: String, mode: AWKFileMode, handle: FileHandle, process: Process? = nil) {
+  init(name: String, mode: AWKFileMode, handle: FileDescriptor) {
     self.name = name; self.mode = mode
-    self.handle = handle; self.process = process
+    self.handle = handle
   }
   
   // Read the next record delimited by `rs`. Returns nil at EOF.
   // C: readrec() — lib.c
-  func readRecord(rs: String) -> String? {
+  func readRecord(rs: String) throws -> String? {
     // Refill buffer from handle
-    func refill() {
-      let data = handle.availableData
-      guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
+    func refill() throws {
+      let data = try handle.readAvailableBytes()
+      guard !data.isEmpty, let s = String(bytes: data, encoding: .utf8) else { return }
       buffer += s
     }
     
-    refill()
+    try refill()
     if buffer.isEmpty { return nil }
     
     if rs.isEmpty {
@@ -208,15 +206,22 @@ final class AWKFile {
     guard let data = s.data(using: .isoLatin1) else { return }
     // FIXME: this works for isoLatin1, but not for .utf8 or localeEncoding()
 // guard let data = s.data(using: localeEncoding() ) else { return }
-    handle.write(data)
+    try handle.write(data)
   }
   
   // C: fclose() / pclose() — run.c
   func close() {
-    if let proc = process { proc.terminate(); proc.waitUntilExit() }
     if handle != .standardInput && handle != .standardOutput && handle != .standardError {
       try? handle.close()
     }
+//    if let proc = process {
+      /*
+      Task {
+        try await Task.sleep(for: .seconds(1))
+        await proc.kill()
+      }
+       */
+//    }
   }
 }
 

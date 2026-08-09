@@ -1,7 +1,7 @@
 In the test suite:
 
 p.43 -- the rows come out in a different order because   for x in dict   keys are in a different order
-p.48, p.50 -- the pipe to "sort" spawns a process which breaks the connection between the standard output of awk and the standard output
+p.48 -- the pipe to "sort" spawns a process which breaks the connection between the standard output of awk and the standard output
         of the forked pipe process.  Need to rework the forking to capture the output of the subprocess
         
 not reporting syntax errors.   E.g.   x=2;print $$x   {x=2; print @x}

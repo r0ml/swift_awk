@@ -582,7 +582,9 @@ extension RuntimeState {
         let cmd = try eval(e).asString()
         output = try fileFor(name: cmd, mode: .outputPipe)
     }
-    
+//    defer {
+//      output.close() }
+
     switch kind {
       case .print:
         try print_(args, dest: dest, to: output)
@@ -713,7 +715,7 @@ extension RuntimeState {
         let result = Mutex<Int>(-1)
         Task {
           let p = DarwinProcess()
-          if let r = try? await p.run("/bin/sh", args: "-c", cmd) {
+          if let r = try? await p.run("/bin/sh", args: "-c", cmd, output: (nil, nil)) {
             result.withLock { $0 = Int(r.code) }
           }
           sem.signal()
@@ -759,7 +761,7 @@ extension RuntimeState {
           let name = try eval(args[0]).asString()
           if name.isEmpty { flushAll() }
           else if let f = openFiles.first(where: { $0.name == name }) {
-            try? f.handle.synchronize()
+//            try? f.handle.synchronize()
           }
         }
         return ValueCell(number: 0)
@@ -789,7 +791,7 @@ extension RuntimeState {
 
   // C: awkgetline() file-variant — run.c
   func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) throws -> Cell {
-    guard let line = file.readRecord(rs: RS) else { return ValueCell(number: 0) }
+    guard let line = try file.readRecord(rs: RS) else { return ValueCell(number: 0) }
     if let lv {
       return try evalLValue(lv) { _ in
         return ValueCell(string: line)

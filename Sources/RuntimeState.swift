@@ -26,7 +26,7 @@ THIS SOFTWARE.
 ****************************************************************/
 
 import CMigration
-import Foundation
+import Darwin
 
 struct CallFrame {
   let funcName: String
@@ -233,42 +233,44 @@ extension RuntimeState {
     let f: AWKFile
     switch mode {
       case .write:
-        FileManager.default.createFile(atPath: name, contents: nil)
-        guard let fh = FileHandle(forWritingAtPath: name) else {
-          throw AWKRuntimeError("cannot open '\(name)' for writing")
+        do {
+          let fh = try FileDescriptor(forWriting: name)
+          let rc = Darwin.ftruncate(fh.rawValue, 0)
+          f = AWKFile(name: name, mode: mode, handle: fh)
+        } catch(let e) {
+          throw AWKRuntimeError("cannot open '\(name)' for writing: \(e)")
         }
-        try fh.truncate(atOffset: 0)
-        f = AWKFile(name: name, mode: mode, handle: fh)
       case .append:
-        if !FileManager.default.fileExists(atPath: name) {
-          FileManager.default.createFile(atPath: name, contents: nil)
-        }
-        guard let fh = FileHandle(forWritingAtPath: name) else {
+        do {
+          let fh = try FileDescriptor(forUpdating: name)
+          try fh.seek(offset: 0, from: .end)
+          f = AWKFile(name: name, mode: mode, handle: fh)
+        } catch(let e) {
           throw AWKRuntimeError("cannot open '\(name)' for append")
         }
-        fh.seekToEndOfFile()
-        f = AWKFile(name: name, mode: mode, handle: fh)
       case .read:
-        let fh = name == "-" ? FileHandle.standardInput
-        : FileHandle(forReadingAtPath: name)
-        guard let fh else { throw AWKRuntimeError("cannot open '\(name)' for reading") }
-        f = AWKFile(name: name, mode: mode, handle: fh)
+        do {
+          let fh = name == "-" ? FileDescriptor.standardInput : try FileDescriptor(forReading: name)
+            f = AWKFile(name: name, mode: mode, handle: fh)
+        } catch(let e) {
+          throw AWKRuntimeError("cannot open '\(name)' for reading")
+        }
       case .outputPipe:
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", name]
-        let pipe = Pipe()
-        proc.standardInput = pipe
-        try proc.run()
-        f = AWKFile(name: name, mode: mode, handle: pipe.fileHandleForWriting, process: proc)
+        let proc = DarwinProcess()
+        let pipe = try FileDescriptor.pipe()
+
+        Task {
+          let k = try await proc.run("/bin/sh", withStdin: pipe.readEnd, args: "-c", name, output: (.standardOutput, stderr: .standardError))
+  //        print(k)
+        }
+        f = AWKFile(name: name, mode: mode, handle: pipe.writeEnd)
       case .inputPipe:
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", name]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        try proc.run()
-        f = AWKFile(name: name, mode: mode, handle: pipe.fileHandleForReading, process: proc)
+        let proc = DarwinProcess()
+        let pipe = try FileDescriptor.pipe()
+
+//        try await proc.run("/bin/sh", args: "-c", name)
+//        proc.standardOutput = pipe
+        f = AWKFile(name: name, mode: mode, handle: pipe.readEnd)
     }
     openFiles.append(f)
     return f
@@ -289,10 +291,10 @@ extension RuntimeState {
   
   // C: flush_all() — run.c
   func flushAll() {
-    for f in openFiles where f.mode == .write || f.mode == .append || f.mode == .outputPipe {
-      try? f.handle.synchronize()
-    }
-    try? FileHandle.standardOutput.synchronize()
+//    for f in openFiles where f.mode == .write || f.mode == .append || f.mode == .outputPipe {
+ //     try? f.handle.synchronize()
+ //   }
+  //  try? FileDescriptor.standardOutput.synchronize()
   }
   
   // MARK: - Subscript key building (SUBSEP-joined multi-dimensional key)
@@ -437,16 +439,19 @@ extension RuntimeState {
     } else if FS.isEmpty {
       fldtab = s.map { String($0) }
     } else {
-      guard let re = try? NSRegularExpression(pattern: FS) else { fldtab = [s]; NF = 1; return }
-      let ns = s as NSString
-      let range = NSRange(location: 0, length: ns.length)
+      guard let re = try? Regex(FS) else { fldtab = [s]; NF = 1; return }
+      let ns = s
+      let range = s.startIndex ..< s.endIndex
       var parts: [String] = []
-      var last = 0
-      for m in re.matches(in: s, range: range) {
-        parts.append(ns.substring(with: NSRange(location: last, length: m.range.location - last)))
-        last = m.range.location + m.range.length
+      var last = s.startIndex
+      for m in s[range].matches(of: re) {
+        let b = m.range.lowerBound
+        let p = s[last..<b]
+        parts.append(String(p))
+        last = m.range.upperBound
       }
-      parts.append(ns.substring(from: last))
+      let b = last..<s.endIndex
+      parts.append(String(s[b]))
       fldtab = parts
     }
     NF = Double(fldtab.count)

@@ -36,7 +36,7 @@ import ShellTesting
     let b = try geturl()
     let inp1 = try inFile(g)
 
-    let env = ["LC_CTYPE": "en_US.LATIN1"]
+    let env = ["LC_CTYPE": "en_US.LATIN1", "SHELLDEBUGGING" : "1"]
     if g.first == "t" {
       let inp2 = try inFile("test.data")
       try await run(output: expected, args: "-f", inp1.relativeTo(b), inp2.relativeTo(b), env: env, cd: b)
