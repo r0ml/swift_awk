@@ -462,7 +462,7 @@ extension RuntimeState {
   func makeFieldCell(_ n: Int) -> Cell {
     //        if let existing = fieldCells[n] { return existing }
     let s = getField(n)
-    let c = ValueCell(string: s)
+    let c = ValueCell(field: s)
     return c
   }
   

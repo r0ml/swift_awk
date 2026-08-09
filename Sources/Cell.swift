@@ -83,8 +83,20 @@ class ValueCell : Cell {
 
   var isNumber : Bool {
     if nval != nil { return true }
-    if let sval, nil != Double(sval.trimmed()) { return true }
+    // FIXME: does this work?
+//    if let sval, nil != Double(sval.trimmed()) { return true }
     return false
+  }
+
+  init(field: String) {
+    field.withCString { c in
+      let cc = UnsafeMutablePointer(mutating: c)
+      var k : UnsafeMutablePointer<CChar>? = cc
+      let r = strtod(c, &k)
+      if let k, strlen(k) == 0 { nval = r }
+    }
+    sval = field
+
   }
 
   func asNumber() -> Double? {
@@ -144,7 +156,7 @@ class EmptyCell : Cell {
   func asString(fmt: String) -> String { return "" }
   var isTrue = false
   func length() -> Int { return 0 }
-  var isNumber = false
+  var isNumber = true
 }
 
 class Dictionary : Cell {

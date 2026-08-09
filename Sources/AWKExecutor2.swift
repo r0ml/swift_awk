@@ -160,7 +160,7 @@ extension RuntimeState {
       case .field(let e):
         let n = Int(try await eval(e).getNumber())
         let s = getField(n)
-        let c = ValueCell(string: s)
+        let c = ValueCell(field: s)
         //          if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }
         return c
         
@@ -383,13 +383,7 @@ extension RuntimeState {
         let name = try await eval(e).asString()
         await closeFile(name: name)
         return ValueCell(number: 0)
-        
- /*     case .indirect(let e):
-        // @expr or $$n — treat as field
-        let n = Int(try await eval(e).getNumber())
-        let s = getField(n)
-        return ValueCell(string: s)
-  */
+
     }
   }
   
