@@ -32,56 +32,56 @@ extension RuntimeState {
   // MARK: - Statement execution
   
   // C: program() block loop — run.c
-  func execBlock(_ stmts: [Statement]) throws {
-    for stmt in stmts { try exec(stmt) }
+  func execBlock(_ stmts: [Statement]) async throws {
+    for stmt in stmts { try await exec(stmt) }
   }
   
   // C: execute() — run.c  (ifstat / whilestat / dostat / forstat / instat / jump)
-  func exec(_ stmt: Statement) throws {
+  func exec(_ stmt: Statement) async throws {
     switch stmt {
       case .empty: break
         
       case .expression(let e):
-        _ = try eval(e)
+        _ = try await eval(e)
         
       case .block(let stmts):
-        try execBlock(stmts)
-        
+        try await execBlock(stmts)
+
       case .print_(let kind, let args, let dest):
-        try execPrint(kind: kind, args: args, dest: dest)
-        
+        try await execPrint(kind: kind, args: args, dest: dest)
+
       case .delete_(let lv):
-        try execDelete(lv)
-        
+        try await execDelete(lv)
+
       case .if_(let cond, let then, let else_):
-        if try eval(cond).isTrue {
-          try exec(then)
+        if try await eval(cond).isTrue {
+          try await exec(then)
         } else if let e = else_ {
-          try exec(e)
+          try await exec(e)
         }
         
       case .while_(let cond, let body):
-        while try eval(cond).isTrue {
-          do { try exec(body) }
+        while try await eval(cond).isTrue {
+          do { try await exec(body) }
           catch AWKSignal.break_ { return }
           catch AWKSignal.continue_ { /* next iteration */ }
         }
         
       case .doWhile(let body, let cond):
         repeat {
-          do { try exec(body) }
+          do { try await exec(body) }
           catch AWKSignal.break_ { return }
           catch AWKSignal.continue_ { /* next iteration */ }
-        } while try eval(cond).isTrue
+        } while try await eval(cond).isTrue
         
       case .for_(let init_, let cond, let incr, let body):
-        if let i = init_ { try exec(i) }
+        if let i = init_ { try await exec(i) }
         while true {
-          if let c = cond, !(try eval(c).isTrue) { break }
-          do { try exec(body) }
+          if let c = cond, !(try await eval(c).isTrue) { break }
+          do { try await exec(body) }
           catch AWKSignal.break_ { return }
           catch AWKSignal.continue_ { /* fall through to increment */ }
-          if let inc = incr { try exec(inc) }
+          if let inc = incr { try await exec(inc) }
         }
         
       case .forIn(let varName, let arrName, let body):
@@ -93,8 +93,8 @@ extension RuntimeState {
         let keys = Array(aa.keys)
         for key in keys {
           guard let _ = aa[key] else { continue }
-          try storeVar(varName, ValueCell(string: key))
-          do { try exec(body) }
+          try await storeVar(varName, ValueCell(string: key))
+          do { try await exec(body) }
           catch AWKSignal.break_ { return }
           catch AWKSignal.continue_ { /* next key */ }
         }
@@ -107,13 +107,13 @@ extension RuntimeState {
         
       case .exit_(let e):
         if let e {
-          let code = try eval(e).getNumber()
+          let code = try await eval(e).getNumber()
           throw AWKSignal.exit_(Int32(code))
         }
         throw AWKSignal.exit_(exitCode)
         
       case .return_(let e):
-        let cell = e != nil ? (try eval(e!)) : EmptyCell()
+        let cell = e != nil ? (try await eval(e!)) : EmptyCell()
         throw AWKSignal.`return`(cell)
         
       case .break_:
@@ -124,10 +124,10 @@ extension RuntimeState {
     }
   }
   
-  // MARK: - Expression evaluation
+  // MARK: - Expression await evaluation
   
   // C: execute() — run.c  (arith / relop / boolop / matchop / condexpr / cat / incrdecr / etc.)
-  func eval(_ expr: Expression) throws -> Cell {
+  func eval(_ expr: Expression) async throws -> Cell {
     switch expr {
         
         // --- Literals ---
@@ -158,74 +158,78 @@ extension RuntimeState {
   */
         
       case .field(let e):
-        let n = Int(try eval(e).getNumber())
+        let n = Int(try await eval(e).getNumber())
         let s = getField(n)
         let c = ValueCell(string: s)
         //          if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }
         return c
         
       case .element(let name, let keys):
-        return try resolveElement(name: name, keys: keys, nil)
-        
+        return try await resolveElement(name: name, keys: keys, nil)
+
         // --- Assignment ---
       case .assign(let op, let lv, let rhs):
-        return try execAssign(op: op, lv: lv, rhs: rhs)
-        
+        return try await execAssign(op: op, lv: lv, rhs: rhs)
+
         // --- Ternary ---
       case .ternary(let cond, let then, let else_):
-        return try eval(cond).isTrue ? eval(then) : eval(else_)
+        return try await eval(cond).isTrue ? eval(then) : eval(else_)
         
         // --- Logical (short-circuit) ---
       case .logicalOr(let a, let b):
-        return ValueCell(number: (try eval(a).isTrue || eval(b).isTrue) ? 1 : 0)
-        
+        let aa = try await eval(a).isTrue
+        let cc = if aa { true } else { try await eval(b).isTrue }
+        return ValueCell(number: cc ? 1 : 0)
+
       case .logicalAnd(let a, let b):
-        return ValueCell(number: (try eval(a).isTrue && eval(b).isTrue) ? 1 : 0)
+        let aa = try await eval(a).isTrue
+        let cc = if aa { try await eval(b).isTrue } else { false }
+        return ValueCell(number: cc ? 1 : 0)
         
         // --- Comparison ---
       case .equal(let a, let b):
-        let x = try eval(a), y = try eval(b)
+        let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) == 0 ? 1 : 0)
 
       case .notNull(let a):
-        let t = try eval(a).isTrue
+        let t = try await eval(a).isTrue
         return ValueCell(number: t ? 1 : 0)
 
       case .notEqual(let a, let b):
-        let x = try eval(a)
-        let y = try eval(b)
+        let x = try await eval(a)
+        let y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) != 0 ? 1 : 0)
         
       case .lessThan(let a, let b):
-        let x = try eval(a), y = try eval(b)
+        let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) < 0 ? 1 : 0)
         
       case .lessEqual(let a, let b):
-        let x = try eval(a), y = try eval(b)
+        let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) <= 0 ? 1 : 0)
         
       case .greaterThan(let a, let b):
-        let x = try eval(a), y = try eval(b)
+        let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) > 0 ? 1 : 0)
         
       case .greaterEqual(let a, let b):
-        let x = try eval(a), y = try eval(b)
+        let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) >= 0 ? 1 : 0)
         
       case .patternMatch(let e, let re):
-        let s = try eval(e).asString()
-        let pat = try regexPattern(re)
+        let s = try await eval(e).asString()
+        let pat = try await regexPattern(re)
         let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
         return ValueCell(number: matched ? 1 : 0)
         
       case .patternNotMatch(let e, let re):
-        let s = try eval(e).asString()
-        let pat = try regexPattern(re)
+        let s = try await eval(e).asString()
+        let pat = try await regexPattern(re)
         let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
         return ValueCell(number: matched ? 0 : 1)
         
       case .inArray(let e, let arrName):
-         let key = try eval(e).asString()
+         let key = try await eval(e).asString()
         // FIXME: make the nil optional
          let arr = try resolveVar(arrName, nil)
         if arr is Dictionary {
@@ -237,7 +241,7 @@ extension RuntimeState {
       case .inArrayTuple(let exprs, let arrName):
         fatalError("unimplmented inArrayTuple")
         /*
-         let parts = try exprs.map { try eval($0).asString() }
+         let parts = try exprs.map { try await eval($0).asString() }
          let key = subscriptKey(parts)
          let arr = resolveVar(arrName)
          return Cell(number: arr.array?[key] != nil ? 1 : 0)
@@ -245,75 +249,75 @@ extension RuntimeState {
         
         // --- Getline ---
       case .getline(let lv):
-        return try execGetline(lv: lv)
+        return try await execGetline(lv: lv)
 
       case .getlineFrom(let lv, let src):
-        let path = try eval(src).asString()
-        let file = try fileFor(name: path, mode: .read)
-        return try readLineInto(lv: lv, from: file, updates0: true)
-        
+        let path = try await eval(src).asString()
+        let file = try await fileFor(name: path, mode: .read)
+        return try await readLineInto(lv: lv, from: file, updates0: true)
+
       case .getlinePipe(let lv, let cmd):
-        let cmdStr = try eval(cmd).asString()
-        let file = try fileFor(name: cmdStr, mode: .inputPipe)
-        return try readLineInto(lv: lv, from: file, updates0: false)
-        
+        let cmdStr = try await eval(cmd).asString()
+        let file = try await fileFor(name: cmdStr, mode: .inputPipe)
+        return try await readLineInto(lv: lv, from: file, updates0: false)
+
         // --- Arithmetic ---
       case .concat(let a, let b):
-        let sa = try eval(a).asString()
-        let sb = try eval(b).asString()
+        let sa = try await eval(a).asString()
+        let sb = try await eval(b).asString()
         return ValueCell(string: sa + sb)
         
       case .add(let a, let b):
-        return ValueCell(number: try eval(a).getNumber() + eval(b).getNumber())
+        return ValueCell(number: try await eval(a).getNumber() + eval(b).getNumber())
         
       case .subtract(let a, let b):
-        return ValueCell(number: try eval(a).getNumber() - eval(b).getNumber())
+        return ValueCell(number: try await eval(a).getNumber() - eval(b).getNumber())
         
       case .multiply(let a, let b):
-        return ValueCell(number: try eval(a).getNumber() * eval(b).getNumber())
+        return ValueCell(number: try await eval(a).getNumber() * eval(b).getNumber())
         
       case .divide(let a, let b):
-        let denom = try eval(b).getNumber()
+        let denom = try await eval(b).getNumber()
         if denom == 0 { throw AWKRuntimeError("division by zero") }
-        return ValueCell(number: try eval(a).getNumber() / denom)
+        return ValueCell(number: try await eval(a).getNumber() / denom)
         
       case .modulo(let a, let b):
-        let denom = try eval(b).getNumber()
+        let denom = try await eval(b).getNumber()
         if denom == 0 { throw AWKRuntimeError("division by zero in mod") }
-        let num = try eval(a).getNumber()
+        let num = try await eval(a).getNumber()
         var intPart = 0.0; modf(num / denom, &intPart)
         return ValueCell(number: num - denom * intPart)
         
       case .power(let a, let b):
-        let base = try eval(a).getNumber()
-        let exp  = try eval(b).getNumber()
+        let base = try await eval(a).getNumber()
+        let exp  = try await eval(b).getNumber()
         return ValueCell(number: ipow(base, exp))
         
       case .negate(let e):
         // 0-0 give me 0, but -0 gives me a negative 0
-        let j = 0-(try eval(e).getNumber())
+        let j = 0-(try await eval(e).getNumber())
         return ValueCell(number: j  	)
 
       case .unaryPlus(let e):
-        return ValueCell(number: try eval(e).getNumber())
+        return ValueCell(number: try await eval(e).getNumber())
         
       case .logicalNot(let e):
-        return ValueCell(number: try eval(e).isTrue ? 0 : 1)
+        return ValueCell(number: try await eval(e).isTrue ? 0 : 1)
         
         // --- Increment / decrement ---
       case .preIncrement(let lv):
-        return try evalLValue(lv) { c in
+        return try await evalLValue(lv) { c in
           return ValueCell(number: c.getNumber() + 1)
         }
 
       case .preDecrement(let lv):
-        return try evalLValue(lv) { c in
+        return try await evalLValue(lv) { c in
           return ValueCell(number: c.getNumber() - 1)
         }
 
       case .postIncrement(let lv):
         var old : Double = 0
-        try evalLValue(lv) { c in
+        try await evalLValue(lv) { c in
           old = c.getNumber()
           return ValueCell(number: old + 1)
         }
@@ -321,7 +325,7 @@ extension RuntimeState {
 
       case .postDecrement(let lv):
         var old : Double = 0
-        return try evalLValue(lv) { c in
+        return try await evalLValue(lv) { c in
           old = c.getNumber()
           return ValueCell(number: old - 1)
         }
@@ -329,30 +333,30 @@ extension RuntimeState {
 
         // --- User-defined function call ---
       case .userCall(let name, let args):
-        return try execUserCall(name: name, argExprs: args)
-        
+        return try await execUserCall(name: name, argExprs: args)
+
         // --- Builtin function call ---
       case .builtinCall(let id, let args):
-        return try execBuiltin(id: id, args: args)
-        
+        return try await execBuiltin(id: id, args: args)
+
         // --- String operations ---
       case .sprintfExpr(let args):
         guard !args.isEmpty else { return EmptyCell() }
-        let fmtStr = try eval(args[0]).asString()
-        return ValueCell(string: try format(fmtStr, args: Array(args.dropFirst())))
-        
+        let fmtStr = try await eval(args[0]).asString()
+        return ValueCell(string: try await format(fmtStr, args: Array(args.dropFirst())))
+
       case .subExpr(let kind, let reExpr, let replExpr, let target):
-        return try execSub(kind: kind, reExpr: reExpr, replExpr: replExpr, target: target)
-        
+        return try await execSub(kind: kind, reExpr: reExpr, replExpr: replExpr, target: target)
+
       case .substrExpr(let str, let start, let len):
-        return try execSubstr(str: str, start: start, len: len)
-        
+        return try await execSubstr(str: str, start: start, len: len)
+
       case .splitExpr(let str, let arrName, let sep):
-        return try execSplit(str: str, arrName: arrName, sep: sep)
-        
+        return try await execSplit(str: str, arrName: arrName, sep: sep)
+
       case .indexExpr(let hay, let needle):
-        let h = try eval(hay).asString()
-        let n = try eval(needle).asString()
+        let h = try await eval(hay).asString()
+        let n = try await eval(needle).asString()
         // Weird, but that is the definition for AWK index
         if n.isEmpty { return ValueCell(number: 1) }
         if let r = h.range(of: n) {
@@ -362,8 +366,8 @@ extension RuntimeState {
         return ValueCell(number: 0)
         
       case .matchFuncExpr(let str, let reExpr):
-        let s = try eval(str).asString()
-        let pat = try regexPattern(reExpr)
+        let s = try await eval(str).asString()
+        let pat = try await regexPattern(reExpr)
         if let range = try AWKRuntime.pmatch(pattern: pat, in: s) {
           let start = Double(s.distance(from: s.startIndex, to: range.lowerBound) + 1)
           let len   = Double(s.distance(from: range.lowerBound, to: range.upperBound))
@@ -376,13 +380,13 @@ extension RuntimeState {
         return ValueCell(number: 0)
         
       case .closeExpr(let e):
-        let name = try eval(e).asString()
-        closeFile(name: name)
+        let name = try await eval(e).asString()
+        await closeFile(name: name)
         return ValueCell(number: 0)
         
  /*     case .indirect(let e):
         // @expr or $$n — treat as field
-        let n = Int(try eval(e).getNumber())
+        let n = Int(try await eval(e).getNumber())
         let s = getField(n)
         return ValueCell(string: s)
   */
@@ -392,7 +396,7 @@ extension RuntimeState {
   // MARK: - Printf formatting
   
   // C: format() — run.c
-  func format(_ fmt: String, args: [Expression]) throws -> String {
+  func format(_ fmt: String, args: [Expression]) async throws -> String {
     var result = ""
     var argIdx = 0
     var i = fmt.startIndex
@@ -411,14 +415,14 @@ extension RuntimeState {
       }
       // width (* or digits)
       if i < fmt.endIndex && fmt[i] == "*" {
-        if argIdx < args.count { spec += String(Int(try eval(args[argIdx]).getNumber())); argIdx += 1 }
+        if argIdx < args.count { spec += String(Int(try await eval(args[argIdx]).getNumber())); argIdx += 1 }
         fmt.formIndex(after: &i)
       } else { while i < fmt.endIndex && fmt[i] >= "0" && fmt[i] <= "9" { spec.append(fmt[i]); fmt.formIndex(after: &i) } }
       // precision
       if i < fmt.endIndex && fmt[i] == "." {
         spec.append("."); fmt.formIndex(after: &i)
         if i < fmt.endIndex && fmt[i] == "*" {
-          if argIdx < args.count { spec += String(Int(try eval(args[argIdx]).getNumber())); argIdx += 1 }
+          if argIdx < args.count { spec += String(Int(try await eval(args[argIdx]).getNumber())); argIdx += 1 }
           fmt.formIndex(after: &i)
         } else { while i < fmt.endIndex && fmt[i] >= "0" && fmt[i] <= "9" { spec.append(fmt[i]); fmt.formIndex(after: &i) } }
       }
@@ -427,7 +431,7 @@ extension RuntimeState {
       guard i < fmt.endIndex else { break }
       let type = fmt[i]; fmt.formIndex(after: &i)
       
-      let arg: Cell = argIdx < args.count ? (try eval(args[argIdx])) : EmptyCell()
+      let arg: Cell = argIdx < args.count ? (try await eval(args[argIdx])) : EmptyCell()
       argIdx += 1
       
       switch type {

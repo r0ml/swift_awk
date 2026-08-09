@@ -153,15 +153,17 @@ public struct SyncRecordReader: Sequence {
 
 
 // FIXME: get rid of this 
-final class AWKFile {
+final class AWKFile : @unchecked Sendable {
   let name: String
   let mode: AWKFileMode
   var handle: FileDescriptor
   var buffer: String = ""     // unread input buffer for line-at-a-time reading
-  
-  init(name: String, mode: AWKFileMode, handle: FileDescriptor) {
+  var proc : DarwinProcess?
+
+  init(name: String, mode: AWKFileMode, handle: FileDescriptor, proc: DarwinProcess? = nil) {
     self.name = name; self.mode = mode
     self.handle = handle
+    self.proc = proc
   }
   
   // Read the next record delimited by `rs`. Returns nil at EOF.
@@ -210,10 +212,13 @@ final class AWKFile {
   }
   
   // C: fclose() / pclose() — run.c
-  func close() {
+  func close() async throws {
     if handle != .standardInput && handle != .standardOutput && handle != .standardError {
       try? handle.close()
     }
+
+    let k = try await proc?.value()
+//    print(k)
 //    if let proc = process {
       /*
       Task {

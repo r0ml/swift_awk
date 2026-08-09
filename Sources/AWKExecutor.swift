@@ -182,11 +182,11 @@ extension RuntimeState {
     // --- BEGIN blocks ---
     do {
       for stmts in program.beginRules {
-        try execBlock(stmts)
+        try await execBlock(stmts)
       }
     } catch AWKSignal.exit_(let code) {
       exitCode = code
-      try runEndBlocks(program)
+      try await runEndBlocks(program)
       return
     }
     
@@ -217,12 +217,12 @@ extension RuntimeState {
           
           for (idx, rule) in program.rules.enumerated() {
             do {
-              if try matchesPattern(rule.pattern, ruleIndex: idx) {
+              if try await matchesPattern(rule.pattern, ruleIndex: idx) {
                 if rule.body.isEmpty {
                   // no body → print $0
-                  try print_([.field(.number(0))], dest: nil)
+                  try await print_([.field(.number(0))], dest: nil)
                 } else {
-                  try execBlock(rule.body)
+                  try await execBlock(rule.body)
                 }
               }
               // FIXME: why is AWKSignal.next different than nextFile?
@@ -231,7 +231,7 @@ extension RuntimeState {
             catch AWKSignal.exit_(let code) {
               exitCode = code
               mf_close_file()
-              try runEndBlocks(program)
+              try await runEndBlocks(program)
               return
             }
           }
@@ -240,39 +240,39 @@ extension RuntimeState {
       }
     
     // --- END blocks ---
-    try runEndBlocks(program)
+    try await runEndBlocks(program)
   }
   
   // C: program() END-block handling — run.c
-  func runEndBlocks(_ program: AWKProgram) throws {
+  func runEndBlocks(_ program: AWKProgram) async throws {
     inEndBlock = true
     do {
       for stmts in program.endRules {
-        try execBlock(stmts)
+        try await execBlock(stmts)
       }
     } catch AWKSignal.exit_(let code) {
       exitCode = code
     }
     inEndBlock = false
-    closeAll()
+    await closeAll()
   }
   
   // MARK: - Pattern matching
   
   // C: pastat() + dopa2() — run.c
-  func matchesPattern(_ pattern: PatternKind, ruleIndex: Int) throws -> Bool {
+  func matchesPattern(_ pattern: PatternKind, ruleIndex: Int) async throws -> Bool {
     switch pattern {
       case .always:
         return true
       case .expression(let e):
-        return try eval(e).isTrue
+        return try await eval(e).isTrue
       case .range(let p1, let p2):
         if pairstack[ruleIndex] {
-          let done = try eval(p2).isTrue
+          let done = try await eval(p2).isTrue
           if done { pairstack[ruleIndex] = false }
           return true
         } else {
-          let start = try eval(p1).isTrue
+          let start = try await eval(p1).isTrue
           if start { pairstack[ruleIndex] = true }
           return start
         }
@@ -285,7 +285,7 @@ extension RuntimeState {
   // MARK: - LValue resolution (returns the cell itself for mutation)
   
   // C: field() / array() / indirect() — run.c
-  func evalLValue(_ lv: LValue, _ store : ((Cell) throws ->Cell)? = nil ) throws -> Cell { // value, fldnum
+  func evalLValue(_ lv: LValue, _ store : ((Cell) throws ->Cell)? = nil ) async throws -> Cell { // value, fldnum
     switch lv {
       case .variable(let name):
         return try resolveVar(name, store)
@@ -320,7 +320,7 @@ extension RuntimeState {
         // We wrap this in a FieldProxy approach: return a cell and post-assign it.
         // This is handled per-case in execAssign and incr/decr.
         // For the incr/decr case, we need the actual stored cell; use a field cell.
-        let n = Int(try eval(e).getNumber())
+        let n = Int(try await eval(e).getNumber())
         let val = makeFieldCell(n)
         if let store {
           let res = try store(val)
@@ -330,10 +330,10 @@ extension RuntimeState {
         return val
 
       case .element(let name, let keys):
-        return try resolveElement(name: name, keys: keys, store)
+        return try await resolveElement(name: name, keys: keys, store)
 
       case .indirect(let e):
-        let n = Int(try eval(e).getNumber())
+        let n = Int(try await eval(e).getNumber())
         let val = makeFieldCell(n)
         if let store {
           let res = try store(val)
@@ -382,7 +382,7 @@ extension RuntimeState {
 
 
   // MARK: - Variable / element resolution
-  func storeVar(_ name : String, _ c : Cell) throws {
+  func storeVar(_ name : String, _ c : Cell) async throws {
     // Check built-in variables first
     // Check current call frame
     if var frame = callStack.last {
@@ -391,7 +391,7 @@ extension RuntimeState {
         callStack[callStack.endIndex-1] = frame
         // FIXME: this is broken if the function callers uses a field or element value with a non-reentrant index
         if i < frame.callLVals.count, let lv = frame.callLVals[i] {
-          try evalLValue(lv) { r in c }
+          try await evalLValue(lv) { r in c }
         }
         return
       }
@@ -424,8 +424,9 @@ extension RuntimeState {
   }
   
   // C: array() — run.c
-  func resolveElement(name: String, keys: [Expression], _ store: ((Cell) throws->Cell)?) throws -> Cell {
-    let parts = try keys.map { try eval($0).asString() }
+  func resolveElement(name: String, keys: [Expression], _ store: ((Cell) throws->Cell)?) async throws -> Cell {
+    var parts : [String] = []
+    for k in keys { try await parts.append(eval(k).asString()) }
     let key = subscriptKey(parts)
     var elres : Cell = EmptyCell()
     let _ = try resolveVar(name) { arr in
@@ -486,8 +487,8 @@ extension RuntimeState {
   // MARK: - Assignment
   
   // C: assign() — run.c
-  func execAssign(op: AssignOp, lv: LValue, rhs: Expression) throws -> Cell {
-    var rhsVal = try eval(rhs)
+  func execAssign(op: AssignOp, lv: LValue, rhs: Expression) async throws -> Cell {
+    var rhsVal = try await eval(rhs)
     // FIXME: bury this in Cell
     // Gymnastics, because otherwise  x = NR (say) makes x the builtin, not the value of the builtin.
     if rhsVal is BuiltInNumber {
@@ -507,7 +508,7 @@ extension RuntimeState {
     
     // Field assignment writes through to env.fields / env.record
     if case .field(let fe) = lv {
-      let n = Int(try eval(fe).getNumber())
+      let n = Int(try await eval(fe).getNumber())
       let cur = ValueCell(number: getField(n) == "" ? 0 : 0)
       let curStr = getField(n)
       let curNum = AWKRuntime.parseNum(curStr)
@@ -519,7 +520,7 @@ extension RuntimeState {
       return newVal
     }
     
-    return try evalLValue(lv) { target in
+    return try await evalLValue(lv) { target in
       return self.applyOp(op, lhsNum: target.getNumber(), lhsStr: target.asString(), rhs: rhsVal)
     }
   }
@@ -559,45 +560,45 @@ extension RuntimeState {
   // MARK: - Regex helper (extracts pattern string from an expression)
   
   // C: (no direct equivalent; extracts pattern string from an expression node)
-  func regexPattern(_ e: Expression) throws -> String {
+  func regexPattern(_ e: Expression) async throws -> String {
     if case .regexMatch(let s) = e { return s }
-    return try eval(e).asString()
+    return try await eval(e).asString()
   }
   
   // MARK: - Print statement
   
   // C: printstat() — run.c
-  func execPrint(kind: PrintKind, args: [Expression], dest: PrintDest?) throws {
+  func execPrint(kind: PrintKind, args: [Expression], dest: PrintDest?) async throws {
     let output: AWKFile
     switch dest {
       case .none:
         output = AWKFile(name: "/dev/stdout", mode: .write, handle: .standardOutput)
       case .redirect(let e):
-        let path = try eval(e).asString()
-        output = try fileFor(name: path, mode: .write)
+        let path = try await eval(e).asString()
+        output = try await fileFor(name: path, mode: .write)
       case .append(let e):
-        let path = try eval(e).asString()
-        output = try fileFor(name: path, mode: .append)
+        let path = try await eval(e).asString()
+        output = try await fileFor(name: path, mode: .append)
       case .pipe(let e):
-        let cmd = try eval(e).asString()
-        output = try fileFor(name: cmd, mode: .outputPipe)
+        let cmd = try await eval(e).asString()
+        output = try await fileFor(name: cmd, mode: .outputPipe)
     }
 //    defer {
 //      output.close() }
 
     switch kind {
       case .print:
-        try print_(args, dest: dest, to: output)
+        try await print_(args, dest: dest, to: output)
       case .printf:
         guard !args.isEmpty else { return }
-        let fmtStr = try eval(args[0]).asString()
-        let result = try format(fmtStr, args: Array(args.dropFirst()))
+        let fmtStr = try await eval(args[0]).asString()
+        let result = try await format(fmtStr, args: Array(args.dropFirst()))
         try output.write(result)
     }
   }
   
   // C: printstat() output loop — run.c
-  func print_(_ args: [Expression], dest: PrintDest?, to output: AWKFile? = nil) throws {
+  func print_(_ args: [Expression], dest: PrintDest?, to output: AWKFile? = nil) async throws {
     let out = output ?? AWKFile(name: "/dev/stdout", mode: .write, handle: .standardOutput)
     if args.isEmpty {
       ensureRecord()
@@ -607,7 +608,7 @@ extension RuntimeState {
     var first = true
     for arg in args {
       if !first { try out.write(OFS) }
-      let val = try eval(arg)
+      let val = try await eval(arg)
       try out.write(val.asString(fmt: OFMT))
       first = false
     }
@@ -617,13 +618,14 @@ extension RuntimeState {
   // MARK: - Delete statement
   
   // C: awkdelete() — run.c
-  func execDelete(_ lv: LValue) throws {
+  func execDelete(_ lv: LValue) async throws {
     switch lv {
       case .variable(let name):
         let _ = try resolveVar(name) { _ in EmptyCell() }
 
       case .element(let name, let keys):
-        let parts = try keys.map { try eval($0).asString() }
+        var parts = [String]()
+        for k in keys { parts.append(try await eval(k).asString()) }
         let key = subscriptKey(parts)
         let _ = try resolveVar(name) {ee in
           if ee is Dictionary {
@@ -642,7 +644,7 @@ extension RuntimeState {
   // MARK: - User-defined function call
   
   // C: call() — run.c
-  func execUserCall(name: String, argExprs: [Expression]) throws -> Cell {
+  func execUserCall(name: String, argExprs: [Expression]) async throws -> Cell {
     guard let fn = functions[name] else {
       throw AWKRuntimeError("calling undefined function '\(name)'")
     }
@@ -652,7 +654,7 @@ extension RuntimeState {
     for argExpr in argExprs {
       let k = argExpr.asLValue()
       lvals.append(k)
-      let c = try eval(argExpr)
+      let c = try await eval(argExpr)
       // FIXME: did I muck this up?
       cells.append(c)
     }
@@ -667,7 +669,7 @@ extension RuntimeState {
 
     var retval : Cell
     do {
-      try execBlock(fn.body)
+      try await execBlock(fn.body)
       retval = callStack.last?.retval ?? EmptyCell()
     } catch AWKSignal.`return`(let val) {
       retval = val
@@ -683,45 +685,43 @@ extension RuntimeState {
   // MARK: - Builtin function call
   
   // C: bltin() — run.c
-  func execBuiltin(id: AWKBuiltinID, args: [Expression]) throws -> Cell {
+  func execBuiltin(id: AWKBuiltinID, args: [Expression]) async throws -> Cell {
     switch id {
       case .length:
         if args.isEmpty {
           ensureFields()
           return ValueCell(number: record!.count)
         }
-        let c = try eval(args[0])
+        let c = try await eval(args[0])
         return ValueCell(number: c.length() )
         
       case .sqrt:
-        return ValueCell(number: sqrt(try eval(args[0]).getNumber()))
-        
+        return ValueCell(number: sqrt(try await eval(args[0]).getNumber()))
+
       case .exp:
-        return ValueCell(number: exp(try eval(args[0]).getNumber()))
-        
+        return ValueCell(number: exp(try await eval(args[0]).getNumber()))
+
       case .log:
-        let v = try eval(args[0]).getNumber()
+        let v = try await eval(args[0]).getNumber()
         if v <= 0 { throw AWKRuntimeError("log: argument must be positive") }
         return ValueCell(number: log(v))
         
       case .int_:
-        var intPart = 0.0; modf(try eval(args[0]).getNumber(), &intPart)
+        var intPart = 0.0; modf(try await eval(args[0]).getNumber(), &intPart)
         return ValueCell(number: intPart)
         
       case .system:
-        let cmd = try eval(args[0]).asString()
+        let cmd = try await eval(args[0]).asString()
         fflush(stdout)
-        let sem = DispatchSemaphore(value: 0)
-        let result = Mutex<Int>(-1)
-        Task {
+        var result = -1
+
+
           let p = DarwinProcess()
           if let r = try? await p.run("/bin/sh", args: "-c", cmd, output: (nil, nil)) {
-            result.withLock { $0 = Int(r.code) }
+            result = Int(r.code)
           }
-          sem.signal()
-        }
-        sem.wait()
-        return ValueCell(number: Double(result.withLock { $0 }))
+
+        return ValueCell(number: Double(result))
 
       case .rand:
         let r = arc4random()
@@ -732,33 +732,33 @@ extension RuntimeState {
         let old = srand_seed
         let seed: Double
         if args.isEmpty { seed = Double(DateTime().timeInterval) }
-        else            { seed = try eval(args[0]).getNumber() }
+        else            { seed = try await eval(args[0]).getNumber() }
         srand_seed = UInt32(seed)
         srand48(Int(seed))
         return ValueCell(number: Double(old))
         
       case .sin:
-        return ValueCell(number: sin(try eval(args[0]).getNumber()))
-        
+        return ValueCell(number: sin(try await eval(args[0]).getNumber()))
+
       case .cos:
-        return ValueCell(number: cos(try eval(args[0]).getNumber()))
-        
+        return ValueCell(number: cos(try await eval(args[0]).getNumber()))
+
       case .atan2:
-        let y = try eval(args[0]).getNumber()
-        let x = args.count > 1 ? try eval(args[1]).getNumber() : 1.0
+        let y = try await eval(args[0]).getNumber()
+        let x = args.count > 1 ? try await eval(args[1]).getNumber() : 1.0
         return ValueCell(number: atan2(y, x))
         
       case .toupper:
-        return ValueCell(string: try eval(args[0]).asString().uppercased())
-        
+        return ValueCell(string: try await eval(args[0]).asString().uppercased())
+
       case .tolower:
-        return ValueCell(string: try eval(args[0]).asString().lowercased())
-        
+        return ValueCell(string: try await eval(args[0]).asString().lowercased())
+
       case .fflush:
         if args.isEmpty {
           flushAll()
         } else {
-          let name = try eval(args[0]).asString()
+          let name = try await eval(args[0]).asString()
           if name.isEmpty { flushAll() }
           else if let f = openFiles.first(where: { $0.name == name }) {
 //            try? f.handle.synchronize()
@@ -771,7 +771,7 @@ extension RuntimeState {
   // MARK: - Getline
   
   // C: awkgetline() — run.c
-  func execGetline(lv: LValue?)  throws -> Cell {
+  func execGetline(lv: LValue?)  async throws -> Cell {
     // Bare getline — read next record from current input (stdin)
     // For simplicity, read from stdin
     guard let line = try awkGets() else {
@@ -779,7 +779,7 @@ extension RuntimeState {
       return ValueCell(number: 0)
     }
     if let lv {
-      let _ = try evalLValue(lv) {_ in
+      let _ = try await evalLValue(lv) {_ in
         return ValueCell(string: line)
       }
     } else {
@@ -790,10 +790,10 @@ extension RuntimeState {
   }
 
   // C: awkgetline() file-variant — run.c
-  func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) throws -> Cell {
+  func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) async throws -> Cell {
     guard let line = try file.readRecord(rs: RS) else { return ValueCell(number: 0) }
     if let lv {
-      return try evalLValue(lv) { _ in
+      return try await evalLValue(lv) { _ in
         return ValueCell(string: line)
       }
     } else if updates0 {
@@ -820,11 +820,11 @@ extension RuntimeState {
   // MARK: - String operations
   
   // C: sub() — run.c
-  func execSub(kind: SubKind, reExpr: Expression, replExpr: Expression, target: LValue) throws -> Cell {
-    let pat = try regexPattern(reExpr)
-    let repl = try eval(replExpr).asString()
+  func execSub(kind: SubKind, reExpr: Expression, replExpr: Expression, target: LValue) async throws -> Cell {
+    let pat = try await regexPattern(reExpr)
+    let repl = try await eval(replExpr).asString()
     var count = 0
-    try evalLValue(target) { targetCell in
+    try await evalLValue(target) { targetCell in
       let str = targetCell.asString()
 
       var result : String = str   // default: no match leaves target unchanged
@@ -865,18 +865,18 @@ extension RuntimeState {
   }
 
   // C: substr() — run.c
-  func execSubstr(str: Expression, start: Expression, len: Expression?) throws -> Cell {
-    let s = try eval(str).asString()
+  func execSubstr(str: Expression, start: Expression, len: Expression?) async throws -> Cell {
+    let s = try await eval(str).asString()
     let k = s.count
     if k == 0 { return EmptyCell() }
     
-    var m = Int(try eval(start).getNumber())
+    var m = Int(try await eval(start).getNumber())
     if m <= 0 { m = 1 }
     else if m > k + 1 { return EmptyCell() }
     
     let n: Int
     if let lenExpr = len {
-      n = max(0, min(Int(try eval(lenExpr).getNumber()), k - m + 1))
+      n = max(0, min(Int(try await eval(lenExpr).getNumber()), k - m + 1))
     } else {
       n = k - m + 1
     }
@@ -887,8 +887,8 @@ extension RuntimeState {
   }
   
   // C: split() — run.c
-  func execSplit(str: Expression, arrName: String, sep: Expression?) throws -> Cell {
-    let s = try eval(str).asString()
+  func execSplit(str: Expression, arrName: String, sep: Expression?) async throws -> Cell {
+    let s = try await eval(str).asString()
     //    var arr = resolveVar(arrName)
     
     var ee = [String:Cell]()
@@ -896,7 +896,7 @@ extension RuntimeState {
     let fs: String
     if let sepExpr = sep {
       if case .regexMatch(let pat) = sepExpr { fs = pat }
-      else { fs = try eval(sepExpr).asString() }
+      else { fs = try await eval(sepExpr).asString() }
     } else {
       fs = FS
     }
@@ -929,8 +929,8 @@ extension RuntimeState {
     }
 
     // FIXME: does this need to reset whatever the "resolved" value is?
-    try storeVar(arrName, Dictionary(dict: ee))
-    
+    try await storeVar(arrName, Dictionary(dict: ee))
+
     return ValueCell(number: parts.count)
   }
   

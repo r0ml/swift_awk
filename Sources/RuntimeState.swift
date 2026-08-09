@@ -225,7 +225,7 @@ extension RuntimeState {
   // MARK: - I/O management
   
   // C: openfile() / redirect() — run.c
-  func fileFor(name: String, mode: AWKFileMode) throws -> AWKFile {
+  func fileFor(name: String, mode: AWKFileMode) async throws -> AWKFile {
     for f in openFiles where f.name == name &&
     (f.mode == mode || (mode == .write && f.mode == .append) ||
      (mode == .append && f.mode == .write)) { return f }
@@ -256,14 +256,23 @@ extension RuntimeState {
           throw AWKRuntimeError("cannot open '\(name)' for reading")
         }
       case .outputPipe:
+
+        
         let proc = DarwinProcess()
         let pipe = try FileDescriptor.pipe()
 
         Task {
-          let k = try await proc.run("/bin/sh", withStdin: pipe.readEnd, args: "-c", name, output: (.standardOutput, stderr: .standardError))
-  //        print(k)
+          do {
+            let k = try await proc.launch("/bin/zsh", withStdin: pipe.readEnd, args: "-c",
+                                  "sort",
+                                  output: (nil, nil))
+//            print(k)
+          } catch(let e) {
+            print(e.localizedDescription)
+          }
         }
-        f = AWKFile(name: name, mode: mode, handle: pipe.writeEnd)
+        f = AWKFile(name: name, mode: mode, handle: pipe.writeEnd, proc: proc)
+
       case .inputPipe:
         let proc = DarwinProcess()
         let pipe = try FileDescriptor.pipe()
@@ -277,15 +286,15 @@ extension RuntimeState {
   }
   
   // C: fclose() / pclose() inline — run.c
-  func closeFile(name: String) {
+  func closeFile(name: String) async {
     if let i = openFiles.firstIndex(where: { $0.name == name }) {
-      openFiles[i].close(); openFiles.remove(at: i)
+      try? await openFiles[i].close(); openFiles.remove(at: i)
     }
   }
   
   // C: closeall() — run.c
-  func closeAll() {
-    for f in openFiles { f.close() }
+  func closeAll() async {
+    for f in openFiles { try? await f.close() }
     openFiles = []
   }
   
