@@ -518,7 +518,7 @@ private func varname() -> Parser<Expression> {
     Parser { stream in
         switch stream.first {
         case .variable(let n): stream = stream.dropFirst(); return .variable(n)
-        case .arg(let i):      stream = stream.dropFirst(); return .argument(i)
+//        case .arg(let i):      stream = stream.dropFirst(); return .argument(i)
 //        case .varnf:           stream = stream.dropFirst(); return .varnf
         default: throw ParseError("Expected variable name")
         }
@@ -529,16 +529,6 @@ private func varname() -> Parser<Expression> {
 private func var_() -> Parser<Expression> {
     Parser { stream in
         switch stream.first {
-            /*
-        case .ivar(let name):
-            stream = stream.dropFirst()
-            return .indirect(.variable(name))
-             */
-/*        case .atSign:
-            stream = stream.dropFirst()
-            let inner = try parseExpr(&stream, minBP: BP.postfix + 1, getlinePipe: true)
-            return .indirect(inner)
- */
         default:
             let base = try varname().parse(&stream)
             if stream.first == .lbracket {
@@ -784,7 +774,7 @@ private func parsePrefix(_ stream: inout TokenStream, getlinePipe: Bool) throws 
     // Variables
 //    case .varnf:
 //                  stream = stream.dropFirst(); return .varnf
-      case .variable, .arg: //, .ivar: // , .atSign:
+      case .variable:  //, .arg: //, .ivar: // , .atSign:
         return try var_().parse(&stream)
 
     // Function call: CALL '(' args ')'
@@ -1020,7 +1010,7 @@ private func assignOp(_ tok: AWKToken) -> AssignOp? {
 private func canStartTerm(_ tok: AWKToken) -> Bool {
   switch tok {
     case .number, .string, .regexLiteral,
-        .variable, /* .ivar, .varnf, */ .arg, .callRef, .bltin,
+        .variable, .callRef, .bltin,
         .lparen, .dollar, .minus, .plus, .notOp, .incrOp, .decrOp,
         .kwGetline, .kwClose, .kwIndex, .kwMatch, .kwSplit,
         .kwSprintf, .kwSub, .kwGsub, .kwSubstr: // , .atSign:

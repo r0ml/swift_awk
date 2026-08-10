@@ -220,12 +220,6 @@ final class AWKFile : @unchecked Sendable {
     let k = try await proc?.value()
 //    print(k)
 //    if let proc = process {
-      /*
-      Task {
-        try await Task.sleep(for: .seconds(1))
-        await proc.kill()
-      }
-       */
 //    }
   }
 }

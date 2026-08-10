@@ -44,26 +44,17 @@ extension RuntimeState {
   /// this function gets the next line for processing from a list of files read sequentially
   /// it is also the awk function GETLINE
   func awkGets() throws -> String? {
-
-    /*
-     var inFile = FileDescriptor.standardInput.bytes.lines.makeAsyncIterator()
-     while let l = try await inFile.next() {
-
-     }
-     */
-
     while !quit {
       if nil != self.inp {
+        // FIXME: should NR and FNR be incremented here or in the callers?
         do {
           if let got = self.inp!.next() {
 //            self.linenum += 1
             return got
           }
-          // reached EOF
           mf_close_file()
           continue
         }
-        // FIXME: handle the 'inplace' option
       } else {
         // This is where the next file is opened
         if self.filelist.isEmpty { return nil }
@@ -79,10 +70,10 @@ extension RuntimeState {
   }
 
   // close the current file so I can move to the next one
-  // FIXME: does nothing?
   func mf_close_file() {
     self.inp = nil
   }
+
   // copied from sed (process.swift)
   /// advances to the next input file in the list
   func mf_next_file() throws(CmdErr) -> SyncRecordReader.Iterator? {
@@ -109,53 +100,6 @@ extension RuntimeState {
       }
     }
   }
-
-/*
-
-  func awkReadline() {
-      let paths = inputPaths.isEmpty ? ["-"] : inputPaths
-      outer: for path in paths {
-        let file: AWKFile
-        if path == "-" {
-          file = AWKFile(name: "-", mode: .read, handle: .standardInput)
-        } else {
-          guard let fh = FileHandle(forReadingAtPath: path) else {
-            fputs("awk: can't open \(path)\n", stderr)
-            continue
-          }
-          file = AWKFile(name: path, mode: .read, handle: fh)
-        }
-        FILENAME = path
-        FNR = 0
-
-        while let rec = file.readRecord(rs: RS) {
-          NR += 1; FNR += 1
-          record = rec
-
-          for (idx, rule) in program.rules.enumerated() {
-            do {
-              if try matchesPattern(rule.pattern, ruleIndex: idx) {
-                if rule.body.isEmpty {
-                  // no body → print $0
-                  try print_([.field(.number(0))], dest: nil)
-                } else {
-                  try execBlock(rule.body)
-                }
-              }
-            } catch AWKSignal.next { continue outer }
-            catch AWKSignal.nextFile { break }
-            catch AWKSignal.exit_(let code) {
-              exitCode = code
-              file.close()
-              try runEndBlocks(program)
-              return
-            }
-          }
-        }
-        file.close()
-      }
-    }
-*/
 
   // MARK: - Main entry point
   
@@ -192,26 +136,8 @@ extension RuntimeState {
     
     // --- Per-record body ---
     if !program.rules.isEmpty || !program.endRules.isEmpty {
-      /*
-      let paths = inputPaths.isEmpty ? ["-"] : inputPaths
-      outer: for path in paths {
-        let file: AWKFile
-        if path == "-" {
-          file = AWKFile(name: "-", mode: .read, handle: .standardInput)
-        } else {
-          guard let fh = FileHandle(forReadingAtPath: path) else {
-            fputs("awk: can't open \(path)\n", stderr)
-            continue
-          }
-          file = AWKFile(name: path, mode: .read, handle: fh)
-        }
-        FILENAME = path
-        FNR = 0
-        */
     getr:
       while let rec = try? awkGets() {
-
-//        while let rec = file.readRecord(rs: RS) {
           NR += 1; FNR += 1
           record = rec
           
@@ -225,7 +151,6 @@ extension RuntimeState {
                   try await execBlock(rule.body)
                 }
               }
-              // FIXME: why is AWKSignal.next different than nextFile?
             } catch AWKSignal.next { continue getr }
             catch AWKSignal.nextFile { mf_close_file();  break }
             catch AWKSignal.exit_(let code) {
@@ -236,9 +161,8 @@ extension RuntimeState {
             }
           }
         }
- //       file.close()
-      }
-    
+    }
+
     // --- END blocks ---
     try await runEndBlocks(program)
   }
@@ -291,30 +215,6 @@ extension RuntimeState {
     switch lv {
       case .variable(let name):
         return try resolveVar(name, store)
-
-/*      case .argument(let i):
-        guard var frame = callStack.last, i < frame.cells.count else {
-          throw AWKRuntimeError("function argument \(i) out of range")
-        }
-        let val = frame.cells[i]
-        if let store {
-          let res = try store(val)
-          frame.cells[i]=res
-          callStack[callStack.endIndex-1]=frame
-          return res
-        }
-        return val
- */
-/*
-      case .varnf:
-        // Assign to NF specially through a proxy cell that triggers setNF on write.
-        // For simplicity, we handle NF assignment in execAssign.
-        let c = symtab["NF"]!;
-        if let store {
-
-          return (c, nil, nil)
-        }
-*/
         
       case .field(let e):
         // Field lvalue — we can't return a reference to an element of env.fields.
@@ -345,43 +245,6 @@ extension RuntimeState {
         return val
     }
   }
-
-
-
-  // FIXME: can I make the evalLValue / storeLValue pair a single function (with a closure arg?)
-/*  func storeLValue(_ lv: LValue, _ c : Cell, _ fldnum : Int?, _ key : String?) throws  {
-    switch lv {
-      case .variable(let name):
-        return storeVar(name, c)
-        
-      case .argument(let i):
-        guard var frame = callStack.last, i < frame.cells.count else {
-          throw AWKRuntimeError("function argument \(i) out of range")
-        }
-        frame.cells[i]=c
-        
-      case .varnf:
-        // Assign to NF specially through a proxy cell that triggers setNF on write.
-        // For simplicity, we handle NF assignment in execAssign.
-        setsym("NF", c)
-        
-      case .field(let e):
-        // Field lvalue — we can't return a reference to an element of env.fields.
-        // Instead, return a proxy: a cell whose value changes are applied via setField.
-        // We wrap this in a FieldProxy approach: return a cell and post-assign it.
-        // This is handled per-case in execAssign and incr/decr.
-        // For the incr/decr case, we need the actual stored cell; use a field cell.
-        setFieldCell(fldnum!, c)
-
-      case .element(let name, let keys):
-        try storeElement(name: name, c, key!)
-
-      case .indirect(let e):
-        setFieldCell(fldnum!, c)
-    }
-  }
-  */
-
 
   // MARK: - Variable / element resolution
   func storeVar(_ name : String, _ c : Cell) async throws {
@@ -456,10 +319,7 @@ extension RuntimeState {
   }
   
   // MARK: - Field proxy cells
-  
-  /// A pseudo-cell backed by field slot n.  Changes are written back via setField.
-  //    var fieldCells: [Int: Cell] = [:]
-  
+
   // C: fieldadr() — lib.c
   func makeFieldCell(_ n: Int) -> Cell {
     //        if let existing = fieldCells[n] { return existing }
@@ -475,17 +335,7 @@ extension RuntimeState {
     if n == 0 { ensureRecord(); record = c.asString() ; return}
     fldtab[n-1]=c.asString()
   }
-  
-  /*
-   // C: (no direct equivalent; field proxy write-back)
-   func flushFieldCells() {
-   for (n, c) in fieldCells {
-   setField(n, c.asString())
-   }
-   fieldCells = [:]
-   }
-   */
-  
+
   // MARK: - Assignment
   
   // C: assign() — run.c
@@ -499,15 +349,6 @@ extension RuntimeState {
       rhsVal = ValueCell(string: rhsVal.asString())
     }
 
-    // NF assignment requires special handling
-/*    if case .varnf = lv {
-      let n = Int(rhsVal.getNumber())
-      setNF(n)
-      
-      return ValueCell(number: n)
-    }
-*/
-    
     // Field assignment writes through to env.fields / env.record
     if case .field(let fe) = lv {
       let n = Int(try await eval(fe).getNumber())
@@ -585,8 +426,6 @@ extension RuntimeState {
         let cmd = try await eval(e).asString()
         output = try await fileFor(name: cmd, mode: .outputPipe)
     }
-//    defer {
-//      output.close() }
 
     switch kind {
       case .print:
@@ -777,7 +616,6 @@ extension RuntimeState {
     // Bare getline — read next record from current input (stdin)
     // For simplicity, read from stdin
     guard let line = try awkGets() else {
-//    guard let line = readln(from: .standardInput) else {
       return ValueCell(number: 0)
     }
     if let lv {
@@ -891,8 +729,6 @@ extension RuntimeState {
   // C: split() — run.c
   func execSplit(str: Expression, arrName: String, sep: Expression?) async throws -> Cell {
     let s = try await eval(str).asString()
-    //    var arr = resolveVar(arrName)
-    
     var ee = AwkDictionary()
 
     let fs: String
@@ -930,12 +766,9 @@ extension RuntimeState {
       }
     }
 
-    // FIXME: does this need to reset whatever the "resolved" value is?
     try await storeVar(arrName, Dictionary(dict: ee))
-
     return ValueCell(number: parts.count)
   }
-  
 }
 
 func substringsBetweenMatches(

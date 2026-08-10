@@ -93,7 +93,7 @@ indirect enum Expression {
 
   // Variables and field access
   case variable(String)
-  case argument(Int)                   // function formal parameter by index
+//  case argument(Int)                   // function formal parameter by index
 //  case varnf                           // $NF
   case field(Expression)              // $expr
   case element(String, [Expression])  // arr[k] or arr[k1, k2, ...]

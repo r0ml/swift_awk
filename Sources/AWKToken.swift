@@ -58,9 +58,7 @@ enum AWKToken: Equatable {
   // --- Named entities resolved by the lexer ---
   case variable(String)         // VAR   — plain variable reference
   case ivar(String)             // IVAR  — indirect variable ($$n form)
-//  case varnf                    // VARNF — special $NF reference
   case callRef(String)          // CALL  — function name in call position
-  case arg(Int)                 // ARG   — formal parameter (0-based index)
   case bltin(AWKBuiltinID)      // BLTIN — builtin function identifier
   
   // --- Program structure ---
@@ -141,7 +139,6 @@ enum AWKToken: Equatable {
   case star                     // '*'
   case percent                  // '%'
   case notOp                    // '!'  (NOT / logical-not)
-//  case atSign                   // '@'  (INDIRECT — gawk/one-true-awk extension)
-  
+
   case eof
 }

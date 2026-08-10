@@ -147,16 +147,6 @@ extension RuntimeState {
       case .variable(let name):
         return try resolveVar(name, nil)
 
-      case .argument(let i):
-        if let frame = callStack.last, i < frame.cells.count { return frame.cells[i] }
-        throw AWKRuntimeError("function argument \(i) out of range")
-
-        /*      case .varnf:
-         // should be  fldbld()
-         ensureFields()
-         return symtab["NF"]!
-         */
-
       case .field(let e):
         let n = Int(try await eval(e).getNumber())
         let s = getField(n)
@@ -230,7 +220,6 @@ extension RuntimeState {
 
       case .inArray(let e, let arrName):
         let key = try await eval(e).asString()
-        // FIXME: make the nil optional
         let arr = try resolveVar(arrName, nil)
         if arr is Dictionary {
           return ValueCell(number: (arr as! Dictionary).dict[key] == nil ? 0 : 1)
