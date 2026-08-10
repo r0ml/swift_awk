@@ -266,19 +266,21 @@ extension RuntimeState {
         return true
       case .expression(let e):
         return try await eval(e).isTrue
+        // dopa2() below
       case .range(let p1, let p2):
+        if !pairstack[ruleIndex] {
+          let start = try await eval(p1).isTrue
+          if start { pairstack[ruleIndex] = true }
+        }
         if pairstack[ruleIndex] {
           let done = try await eval(p2).isTrue
           if done { pairstack[ruleIndex] = false }
           return true
-        } else {
-          let start = try await eval(p1).isTrue
-          if start { pairstack[ruleIndex] = true }
-          return start
         }
+        return false
     }
   }
-  
+
   
   
   
@@ -442,7 +444,7 @@ extension RuntimeState {
       } else {
         if let store {
           elres = try store(EmptyCell())
-          var ee = [String:Cell]()
+          var ee = AwkDictionary()
           ee[key]=elres
           return Dictionary(dict: ee)
         }
@@ -891,8 +893,8 @@ extension RuntimeState {
     let s = try await eval(str).asString()
     //    var arr = resolveVar(arrName)
     
-    var ee = [String:Cell]()
-    
+    var ee = AwkDictionary()
+
     let fs: String
     if let sepExpr = sep {
       if case .regexMatch(let pat) = sepExpr { fs = pat }

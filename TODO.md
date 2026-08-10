@@ -1,7 +1,5 @@
 In the test suite:
-
-p.43 -- the rows come out in a different order because   for x in dict   keys are in a different order
-
+x
 not reporting syntax errors.   E.g.   x=2;print $$x   {x=2; print @x}
 awk '{x = 1; print $(x+1) }' zzz  -- winds up printing the whole record instead of just the one field
 the lexer stops after print : 'x = 1 ; print $(x+1)'

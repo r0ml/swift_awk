@@ -129,20 +129,20 @@ extension RuntimeState {
   // C: execute() — run.c  (arith / relop / boolop / matchop / condexpr / cat / incrdecr / etc.)
   func eval(_ expr: Expression) async throws -> Cell {
     switch expr {
-        
+
         // --- Literals ---
-       case .number(let n):
+      case .number(let n):
         return ValueCell(number: n)
-        
+
       case .string(let s):
         return ValueCell(string: s)
-        
+
       case .regexMatch(let pat):
         // Bare /re/ → match against $0
         let s = getField(0)
         let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
         return ValueCell(number: matched ? 1 : 0)
-        
+
         // --- Variables ---
       case .variable(let name):
         return try resolveVar(name, nil)
@@ -150,20 +150,20 @@ extension RuntimeState {
       case .argument(let i):
         if let frame = callStack.last, i < frame.cells.count { return frame.cells[i] }
         throw AWKRuntimeError("function argument \(i) out of range")
-        
-/*      case .varnf:
-        // should be  fldbld()
-        ensureFields()
-        return symtab["NF"]!
-  */
-        
+
+        /*      case .varnf:
+         // should be  fldbld()
+         ensureFields()
+         return symtab["NF"]!
+         */
+
       case .field(let e):
         let n = Int(try await eval(e).getNumber())
         let s = getField(n)
         let c = ValueCell(field: s)
         //          if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }
         return c
-        
+
       case .element(let name, let keys):
         return try await resolveElement(name: name, keys: keys, nil)
 
@@ -174,7 +174,7 @@ extension RuntimeState {
         // --- Ternary ---
       case .ternary(let cond, let then, let else_):
         return try await eval(cond).isTrue ? eval(then) : eval(else_)
-        
+
         // --- Logical (short-circuit) ---
       case .logicalOr(let a, let b):
         let aa = try await eval(a).isTrue
@@ -185,7 +185,7 @@ extension RuntimeState {
         let aa = try await eval(a).isTrue
         let cc = if aa { try await eval(b).isTrue } else { false }
         return ValueCell(number: cc ? 1 : 0)
-        
+
         // --- Comparison ---
       case .equal(let a, let b):
         let x = try await eval(a), y = try await eval(b)
@@ -199,39 +199,39 @@ extension RuntimeState {
         let x = try await eval(a)
         let y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) != 0 ? 1 : 0)
-        
+
       case .lessThan(let a, let b):
         let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) < 0 ? 1 : 0)
-        
+
       case .lessEqual(let a, let b):
         let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) <= 0 ? 1 : 0)
-        
+
       case .greaterThan(let a, let b):
         let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) > 0 ? 1 : 0)
-        
+
       case .greaterEqual(let a, let b):
         let x = try await eval(a), y = try await eval(b)
         return ValueCell(number: AWKRuntime.compare(x, y, convfmt: CONVFMT) >= 0 ? 1 : 0)
-        
+
       case .patternMatch(let e, let re):
         let s = try await eval(e).asString()
         let pat = try await regexPattern(re)
         let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
         return ValueCell(number: matched ? 1 : 0)
-        
+
       case .patternNotMatch(let e, let re):
         let s = try await eval(e).asString()
         let pat = try await regexPattern(re)
         let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
         return ValueCell(number: matched ? 0 : 1)
-        
+
       case .inArray(let e, let arrName):
-         let key = try await eval(e).asString()
+        let key = try await eval(e).asString()
         // FIXME: make the nil optional
-         let arr = try resolveVar(arrName, nil)
+        let arr = try resolveVar(arrName, nil)
         if arr is Dictionary {
           return ValueCell(number: (arr as! Dictionary).dict[key] == nil ? 0 : 1)
         } else {
@@ -239,14 +239,20 @@ extension RuntimeState {
         }
 
       case .inArrayTuple(let exprs, let arrName):
-        fatalError("unimplmented inArrayTuple")
-        /*
-         let parts = try exprs.map { try await eval($0).asString() }
-         let key = subscriptKey(parts)
-         let arr = resolveVar(arrName)
-         return Cell(number: arr.array?[key] != nil ? 1 : 0)
-         */
-        
+        var parts = [String]()
+        for x in exprs {
+          parts.append(try await eval(x).asString())
+        }
+
+        let key = subscriptKey(parts)
+        let arr = try resolveVar(arrName, nil)
+        if arr is Dictionary {
+          let k = (arr as! Dictionary).dict[key]
+          return ValueCell(number: k != nil ? 1 : 0 )
+        } else {
+          return ValueCell(number: 0)
+        } 
+
         // --- Getline ---
       case .getline(let lv):
         return try await execGetline(lv: lv)
@@ -456,4 +462,5 @@ extension RuntimeState {
     }
     return result
   }
+
 }

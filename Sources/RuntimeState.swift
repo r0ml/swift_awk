@@ -43,7 +43,7 @@ actor RuntimeState {
   var quit = false
 
   var curpfile = 0
-  var symtab : [String : Cell] = [:]
+  var symtab = AwkDictionary()
 
   var options = awk.CommandOptions()
 
@@ -140,7 +140,7 @@ extension RuntimeState {
   }
   
   func envinit() async { // set up ENVIRON variable
-    var aa = [String:Cell]()
+    var aa = AwkDictionary()
     for (k, v) in Environment.getenv() { aa[k]=ValueCell(string: v) }
     setsym("ENVIRON", Dictionary(dict: aa))
   }
@@ -264,7 +264,7 @@ extension RuntimeState {
         Task {
           do {
             let k = try await proc.launch("/bin/zsh", withStdin: pipe.readEnd, args: "-c",
-                                  "sort",
+                                  name,
                                   output: (nil, nil))
 //            print(k)
           } catch(let e) {

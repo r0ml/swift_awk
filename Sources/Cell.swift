@@ -89,11 +89,13 @@ class ValueCell : Cell {
   }
 
   init(field: String) {
-    field.withCString { c in
-      let cc = UnsafeMutablePointer(mutating: c)
-      var k : UnsafeMutablePointer<CChar>? = cc
-      let r = strtod(c, &k)
-      if let k, strlen(k) == 0 { nval = r }
+    if !field.isEmpty {
+      field.withCString { c in
+        let cc = UnsafeMutablePointer(mutating: c)
+        var k : UnsafeMutablePointer<CChar>? = cc
+        let r = strtod(c, &k)
+        if let k, strlen(k) == 0 { nval = r }
+      }
     }
     sval = field
 
@@ -160,13 +162,13 @@ class EmptyCell : Cell {
 }
 
 class Dictionary : Cell {
-  var dict : [String : Cell] = [:]
+  var dict = AwkDictionary()
 
   var isNumber = false
 
   init() {}
 
-  init(dict: [String:Cell]) {
+  init(dict: AwkDictionary) {
     self.dict = dict
   }
 
