@@ -13,7 +13,7 @@ import ShellTesting
     let k = try? j!.listDirectory().sorted()
 
     let k2 = (k!.filter { $0.hasPrefix("expected.") })
-    // t.randk and p.48b are based on random() -- which is replaced by arc4random() -- so don't match
+    // t.randk and p.48b are based on random() -- which is replaced by drand48() -- so don't match
       .filter { !($0 == "expected.t.randk" || $0 == "expected.p.48b") }
     return k2
   }

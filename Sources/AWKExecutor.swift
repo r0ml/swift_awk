@@ -211,7 +211,7 @@ extension RuntimeState {
   // MARK: - LValue resolution (returns the cell itself for mutation)
   
   // C: field() / array() / indirect() — run.c
-  func evalLValue(_ lv: LValue, _ store : ((Cell) throws ->Cell)? = nil ) async throws -> Cell { // value, fldnum
+  @discardableResult func evalLValue(_ lv: LValue, _ store : ((Cell) throws ->Cell)? = nil ) async throws -> Cell { // value, fldnum
     switch lv {
       case .variable(let name):
         return try resolveVar(name, store)
@@ -296,7 +296,7 @@ extension RuntimeState {
     var elres : Cell = EmptyCell()
     let _ = try resolveVar(name) { arr in
       if arr is Dictionary {
-        var ee = (arr as! Dictionary).dict
+        let ee = (arr as! Dictionary).dict
         elres = ee[key] ?? EmptyCell()
         if let store {
           let res = try store(elres)
@@ -307,7 +307,7 @@ extension RuntimeState {
       } else {
         if let store {
           elres = try store(EmptyCell())
-          var ee = AwkDictionary()
+          let ee = AwkDictionary()
           ee[key]=elres
           return Dictionary(dict: ee)
         }
@@ -470,7 +470,7 @@ extension RuntimeState {
         let key = subscriptKey(parts)
         let _ = try resolveVar(name) {ee in
           if ee is Dictionary {
-            var aa = (ee as! Dictionary).dict
+            let aa = (ee as! Dictionary).dict
             // FIXME: aa has to be stored back?
             aa.removeValue(forKey: key)
             return Dictionary(dict: aa)
@@ -512,8 +512,8 @@ extension RuntimeState {
     do {
       try await execBlock(fn.body)
       retval = callStack.last?.retval ?? EmptyCell()
-    } catch AWKSignal.`return`(let val) {
-      retval = val
+    } catch AWKSignal.`return` {
+      retval = self.retval
     }
     // Before returning, if any of the args are variables, then if the corresponding frame values have
     // been updated, the variable argumnet must be updated
@@ -565,17 +565,18 @@ extension RuntimeState {
         return ValueCell(number: Double(result))
 
       case .rand:
-        let r = arc4random()
+//        let r = arc4random()
+        let r = drand48()
 //        let r2 = Darwin.random()
-        return ValueCell(number: Double(r) / Double(UInt32.max) )
+        return ValueCell(number: r )
 
       case .srand:
         let old = srand_seed
         let seed: Double
         if args.isEmpty { seed = Double(DateTime().timeInterval) }
         else            { seed = try await eval(args[0]).getNumber() }
-        srand_seed = UInt32(seed)
-        srand48(Int(seed))
+        srand_seed = Int(seed)
+        srand48(srand_seed)
         return ValueCell(number: Double(old))
         
       case .sin:
@@ -601,7 +602,8 @@ extension RuntimeState {
         } else {
           let name = try await eval(args[0]).asString()
           if name.isEmpty { flushAll() }
-          else if let f = openFiles.first(where: { $0.name == name }) {
+          else if let _ = openFiles.first(where: { $0.name == name }) {
+            // FIXME: is there anything to do here?
 //            try? f.handle.synchronize()
           }
         }
@@ -729,7 +731,7 @@ extension RuntimeState {
   // C: split() — run.c
   func execSplit(str: Expression, arrName: String, sep: Expression?) async throws -> Cell {
     let s = try await eval(str).asString()
-    var ee = AwkDictionary()
+    let ee = AwkDictionary()
 
     let fs: String
     if let sepExpr = sep {

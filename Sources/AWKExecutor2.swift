@@ -113,8 +113,8 @@ extension RuntimeState {
         throw AWKSignal.exit_(exitCode)
         
       case .return_(let e):
-        let cell = e != nil ? (try await eval(e!)) : EmptyCell()
-        throw AWKSignal.`return`(cell)
+        retval = e != nil ? (try await eval(e!)) : EmptyCell()
+        throw AWKSignal.`return`
         
       case .break_:
         throw AWKSignal.break_
@@ -320,7 +320,7 @@ extension RuntimeState {
 
       case .postDecrement(let lv):
         var old : Double = 0
-        return try await evalLValue(lv) { c in
+        try await evalLValue(lv) { c in
           old = c.getNumber()
           return ValueCell(number: old - 1)
         }

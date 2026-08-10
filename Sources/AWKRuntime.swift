@@ -38,7 +38,7 @@ enum AWKSignal: Error {
   case continue_
   case next
   case nextFile
-  case `return` (Cell)
+  case `return`
   case exit_(Int32)
 }
 

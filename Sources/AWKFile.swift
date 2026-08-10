@@ -66,7 +66,7 @@ public struct SyncByteStream: Sequence {
           guard bytesRead > 0 else { return nil }
           buffer = Array(temp.prefix(bytesRead))
           index = 0
-        } catch(let e) {
+        } catch {
           // print("reading: \(e.localizedDescription)")
           return nil
         }
@@ -214,10 +214,14 @@ final class AWKFile : @unchecked Sendable {
   // C: fclose() / pclose() — run.c
   func close() async throws {
     if handle != .standardInput && handle != .standardOutput && handle != .standardError {
-      try? handle.close()
+      try handle.close()
     }
 
-    let k = try await proc?.value()
+    if let k = try await proc?.value() {
+      if k.code != 0 {
+        throw AWKRuntimeError("subprocess returned error: \(k.code)")
+      }
+    }
 //    print(k)
 //    if let proc = process {
 //    }

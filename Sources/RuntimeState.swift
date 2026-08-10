@@ -79,7 +79,7 @@ actor RuntimeState {
   var dbg = 0
   
 //  var yyin : FileDescriptor?
-  var srand_seed : UInt32 = 1
+  var srand_seed : Int = 1
   var inputFS : String = " "
   var lineno : Int = 0    // line number in awk program
   var errorflag = false  // 1 if error has occurred
@@ -118,6 +118,9 @@ actor RuntimeState {
   var RLENGTH : Double = 0
 
   var exitCode: Int32 = 0
+
+  // For AwkSignal -- Cell is not Sendable, so can't use return value as case argument
+  var retval : Cell = EmptyCell()
 }
 
 extension RuntimeState {
@@ -140,11 +143,11 @@ extension RuntimeState {
   }
   
   func envinit() async { // set up ENVIRON variable
-    var aa = AwkDictionary()
+    let aa = AwkDictionary()
     for (k, v) in Environment.getenv() { aa[k]=ValueCell(string: v) }
     setsym("ENVIRON", Dictionary(dict: aa))
   }
-  
+
   func syminit() { // initialize symbol table with builtin vars
     
     // literal0 =
@@ -235,7 +238,6 @@ extension RuntimeState {
       case .write:
         do {
           let fh = try FileDescriptor(forWriting: name)
-          let rc = Darwin.ftruncate(fh.rawValue, 0)
           f = AWKFile(name: name, mode: mode, handle: fh)
         } catch(let e) {
           throw AWKRuntimeError("cannot open '\(name)' for writing: \(e)")
@@ -246,14 +248,14 @@ extension RuntimeState {
           try fh.seek(offset: 0, from: .end)
           f = AWKFile(name: name, mode: mode, handle: fh)
         } catch(let e) {
-          throw AWKRuntimeError("cannot open '\(name)' for append")
+          throw AWKRuntimeError("cannot open '\(name)' for append: \(e)")
         }
       case .read:
         do {
           let fh = name == "-" ? FileDescriptor.standardInput : try FileDescriptor(forReading: name)
             f = AWKFile(name: name, mode: mode, handle: fh)
         } catch(let e) {
-          throw AWKRuntimeError("cannot open '\(name)' for reading")
+          throw AWKRuntimeError("cannot open '\(name)' for reading: \(e)")
         }
       case .outputPipe:
 
@@ -263,10 +265,12 @@ extension RuntimeState {
 
         Task {
           do {
+            // k is pid
             let k = try await proc.launch("/bin/zsh", withStdin: pipe.readEnd, args: "-c",
                                   name,
-                                  output: (nil, nil))
-//            print(k)
+                                             output: (nil, nil))
+              //            print(k)
+
           } catch(let e) {
             print(e.localizedDescription)
           }
@@ -274,6 +278,7 @@ extension RuntimeState {
         f = AWKFile(name: name, mode: mode, handle: pipe.writeEnd, proc: proc)
 
       case .inputPipe:
+        // FIXME: this does nothing -- no test cases for inputPipe
         let proc = DarwinProcess()
         let pipe = try FileDescriptor.pipe()
 
@@ -449,7 +454,6 @@ extension RuntimeState {
       fldtab = s.map { String($0) }
     } else {
       guard let re = try? Regex(FS) else { fldtab = [s]; NF = 1; return }
-      let ns = s
       let range = s.startIndex ..< s.endIndex
       var parts: [String] = []
       var last = s.startIndex

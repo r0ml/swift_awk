@@ -132,15 +132,6 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
     options.args = go.remaining
 
-      // FIXME: why was this here?
-      /*
-    if options.args.count == 0 {
-      throw CmdErr(1)
-    }
-*/
-
-    //    Unix2003_compat = COMPAT_MODE("bin/awk", "unix2003")
-
       var sa = sigaction.init()
       sa.__sigaction_u.__sa_sigaction = fpecatch;
       sa.sa_flags = SA_SIGINFO;
@@ -150,9 +141,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
     /*signal(SIGSEGV, segvcatch); experiment */
 
-    /* Set and keep track of the random seed */
- //   srand_seed = 1;
-    await srandom(runtime.srand_seed)
+    await srand48(runtime.srand_seed)
 
  //   runtime.yyin = nil
  //   symtab = makesymtab(NSYMTAB/NSYMTAB);
@@ -175,22 +164,12 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
   func runCommand() async throws(CmdErr) {
     await runtime.setOptions(options)
-//    await recinit(RECSIZE)
+
+    if (!options.safe) {
+      await runtime.envinit()
+    }
+
     await runtime.syminit()
-
-
-    //    compile_time = COMPILING;
-    // argv[0] = cmdname;  /* put prog name at front of arglist */
-    // DPRINTF("argc=%d, argv[0]=%s\n", argc, argv[0]);
-
-
-    // FIXME: do arginit:  put me back
-    // arginit(argc, argv);
-
-    // FIXME: do envinit: put me back
-    // if (!options.safe) {
- //     envinit(environ)
-//    }
 
     do {
 
@@ -202,103 +181,19 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
       let ast = try AWKParser.parse(tokens)      // → AWKProgram
 
 
-      //    yyparse();
       setlocale(LC_NUMERIC, ""); /* back to whatever it is locally */
-
-      // FIXME: put me back
-      /*
-       if (fs) {
-       *FS = qstring(fs, "\0");
-       }
-       DPRINTF("errorflag=%d\n", errorflag);
-       if (errorflag == 0) {
-       compile_time = RUNNING;
-
-
-
-
-
-       run(winner);
-*/
 
         // Step 3: Execute
         // From files:
       try await runtime.run(ast, inputPaths: options.args)
         // From stdin (no inputPaths):
-//        try run(ast, inputPaths: [], programArgs: ["awk"])
 
-
-      // FIXME: put me back
-/*
-       } else {
-       bracecheck();
-       }
-       return(errorflag);
-       */
     } catch(let e) {
       throw CmdErr(2, "\(e)")
     }
   }
 
   var usage : String { "usage: \(programName) [-F fs] [-v var=value] [-f progfile | 'prog'] [file ...]" }
-
-
-  /*
-func setfs(_ p : String) -> String? {
-	/* wart: t=>\t */
-  if (p[0] == "t" && p[1] == "\0") {
-    return "\t";
-  }
-  else if (p[0] != "\0") {
-    return p;
-  }
-	return nil
-}
-*/
-
-
-/*
-func getarg(int *argc, char ***argv, const char *msg)
-{
-	if ((*argv)[1][2] != '\0') {	// arg is -fsomething
-		return &(*argv)[1][2];
-	} else {			// arg is -f something
-		(*argc)--; (*argv)++;
-		if (*argc <= 1)
-			FATAL("%s", msg);
-		return (*argv)[1];
-	}
-}
-*/
-
-
-  /*
-func pgetc() -> Character { // get 1 character from awk program
-  while true {
-		if (yyin == NULL) {
-      if (curpfile >= npfile) {
-        return EOF;
-      }
-      if (strcmp(pfile[curpfile], "-") == 0) {
-        yyin = stdin;
-      }
-      else if ((yyin = fopen(pfile[curpfile], "r")) == NULL) {
-        FATAL("can't open file %s", pfile[curpfile]);
-      }
-			lineno = 1;
-		}
-    if ((c = getc(yyin)) != EOF) {
-      return c;
-    }
-    if (yyin != stdin) {
-      fclose(yyin);
-    }
-		yyin = NULL;
-		curpfile++;
-	}
-}
-*/
-
 
 
   func DPRINTF(_ s : String) {
@@ -329,8 +224,6 @@ func pgetc() -> Character { // get 1 character from awk program
 
 
 }
-
-
 
 // May return now, if kill(2)-delivered in conformance mode.
   func fpecatch(_ n : Int32, _ six : UnsafeMutablePointer<siginfo_t>?, _ uc : UnsafeMutableRawPointer?) {
