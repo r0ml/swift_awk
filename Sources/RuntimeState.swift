@@ -188,7 +188,7 @@ extension RuntimeState {
   // C: getfval(fldtab[n]) — tran.c
   func getField(_ n: Int) -> String {
     ensureFields()
-    if n == 0 { ensureRecord(); return record! }
+    if n == 0 { ensureRecord(); return record ?? "" }
     guard n >= 1 && n <= fldtab.count else { return "" }
     return fldtab[n - 1]
   }

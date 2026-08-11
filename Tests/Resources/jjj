@@ -1,10 +1,13 @@
-    
-    BEGIN {
-      for (i = 1; i < ARGC-1; i++)
-        printf "%s ", ARGV[i]
-      if (ARGC > 1)
-        printf "%s", ARGV[i]
-      printf "\n"
-      exit
-    }
+        BEGIN {
+          $0 = "aaa"
+          print "abcdef" " " $0
+        }
+        BEGIN { print "hello" "world"; print helloworld }
+        BEGIN {
+           print " " "hello"
+           print "hello" " "
+           print "hello" " " "world"
+           print "hello" (" " "world")
+        }
+
 
