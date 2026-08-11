@@ -26,7 +26,6 @@ THIS SOFTWARE.
 ****************************************************************/
 
 // AWK grammar expressed as parser combinators + a Pratt parser for expressions.
-import Darwin
 
 // Direct translation of awkgram.y (one-true-awk).
 //
@@ -104,22 +103,15 @@ private func program() -> Parser<AWKProgram> {
         var functions:  [FunctionDefinition] = []
 
         while let next = stream.first, next != .eof {
-            let saved = stream
-            do {
-                if let rule = try paStat(
-                    &stream,
-                    beginRules: &beginRules,
-                    endRules:   &endRules,
-                    functions:  &functions
-                ) {
-                    rules.append(rule)
-                }
-                try skipSep().parse(&stream)
-            } catch {
-                stream = saved
-                fputs("awk: parse error: \(error)\n", stderr)
-                break
+            if let rule = try paStat(
+                &stream,
+                beginRules: &beginRules,
+                endRules:   &endRules,
+                functions:  &functions
+            ) {
+                rules.append(rule)
             }
+            try skipSep().parse(&stream)
         }
 
         return AWKProgram(
@@ -460,10 +452,10 @@ private func parsePrintStmt() -> Parser<Statement> {
                 }
             } catch {
                 stream = saved
-                args = try sepBy(lazy(ppattern()), sep: comma_()).parse(&stream)
+                args = try sepBy(lazy(printArgPattern()), sep: comma_()).parse(&stream)
             }
         } else {
-            args = try sepBy(lazy(ppattern()), sep: comma_()).parse(&stream)
+            args = try sepBy(lazy(printArgPattern()), sep: comma_()).parse(&stream)
         }
 
         // Optional redirect
@@ -525,24 +517,31 @@ private func varname() -> Parser<Expression> {
     }
 }
 
-// var: varname | varname '[' patlist ']' | IVAR | '@' term
+// var: varname | varname '[' patlist ']' | IVAR | '@' term | '$' term
+//
+// The field case ('$' term) isn't in the original "var" nonterminal by that
+// name, but every caller of var_() here wants a general lvalue (getline's
+// target, sub/gsub's target, ...), and field references like $0 or $1 are
+// valid lvalues in awk (e.g. `sub(/x/, "y", $2)`, `getline $1`).
 private func var_() -> Parser<Expression> {
     Parser { stream in
-        switch stream.first {
-        default:
-            let base = try varname().parse(&stream)
-            if stream.first == .lbracket {
-                stream = stream.dropFirst()
-                let keys = try sepBy1(lazy(pattern()), sep: comma_()).parse(&stream)
-                guard stream.first == .rbracket else { throw ParseError("Expected ']'") }
-                stream = stream.dropFirst()
-                guard case .variable(let n) = base else {
-                    throw ParseError("Array subscript requires a named variable")
-                }
-                return .element(n, keys)
-            }
-            return base
+        if stream.first == .dollar {
+            stream = stream.dropFirst()
+            let inner = try parseExpr(&stream, minBP: BP.postfix + 1, getlinePipe: false)
+            return .field(inner)
         }
+        let base = try varname().parse(&stream)
+        if stream.first == .lbracket {
+            stream = stream.dropFirst()
+            let keys = try sepBy1(lazy(pattern()), sep: comma_()).parse(&stream)
+            guard stream.first == .rbracket else { throw ParseError("Expected ']'") }
+            stream = stream.dropFirst()
+            guard case .variable(let n) = base else {
+                throw ParseError("Array subscript requires a named variable")
+            }
+            return .element(n, keys)
+        }
+        return base
     }
 }
 
@@ -579,20 +578,31 @@ private func ppattern() -> Parser<Expression> {
 
 private func term() -> Parser<Expression> { ppattern() }
 
+// Bare (unparenthesized) print/printf arguments: a top-level '>' always
+// means output redirection, never a greater-than comparison — this mirrors
+// one-true-awk's resolution of the print-statement grammar ambiguity.
+// `allowGT: false` propagates through the same unparenthesized chain
+// (concatenation, arithmetic, &&/||, unary ops) but is reset to true by any
+// bounded sub-context (parens, ternary branches, function-call args, etc.),
+// where a literal '>' can only mean comparison.
+private func printArgPattern() -> Parser<Expression> {
+    Parser { s in try parseExpr(&s, minBP: 0, getlinePipe: false, allowGT: false) }
+}
+
 // MARK: Pratt parser core
 
-private func parseExpr(_ stream: inout TokenStream, minBP: Int, getlinePipe: Bool) throws -> Expression {
+private func parseExpr(_ stream: inout TokenStream, minBP: Int, getlinePipe: Bool, allowGT: Bool = true) throws -> Expression {
     var lhs = try parsePrefix(&stream, getlinePipe: getlinePipe)
     while true {
-        guard let lbp = infixBP(stream.first, getlinePipe: getlinePipe), lbp >= minBP else { break }
-        lhs = try parseInfix(&stream, lhs: lhs, lbp: lbp, getlinePipe: getlinePipe)
+        guard let lbp = infixBP(stream.first, getlinePipe: getlinePipe, allowGT: allowGT), lbp >= minBP else { break }
+        lhs = try parseInfix(&stream, lhs: lhs, lbp: lbp, getlinePipe: getlinePipe, allowGT: allowGT)
     }
     return lhs
 }
 
 /// Left binding power of the current token when used as an infix operator.
 /// Returns nil if the token is not an infix operator at the current context.
-private func infixBP(_ tok: AWKToken?, getlinePipe: Bool) -> Int? {
+private func infixBP(_ tok: AWKToken?, getlinePipe: Bool, allowGT: Bool = true) -> Int? {
     guard let tok else { return nil }
     switch tok {
     case .assignOp, .addEqOp, .subEqOp, .mulEqOp, .divEqOp, .modEqOp, .powEqOp:
@@ -605,7 +615,9 @@ private func infixBP(_ tok: AWKToken?, getlinePipe: Bool) -> Int? {
         return BP.logicalAnd
     case .pipe where getlinePipe:
         return BP.getlinePipe  // only if | getline is allowed
-    case .eqOp, .neOp, .ltOp, .leOp, .gtOp, .geOp, .matchOp, .notMatchOp, .kwIn:
+    case .gtOp:
+        return allowGT ? BP.comparison : nil  // bare '>' in print args means redirect
+    case .eqOp, .neOp, .ltOp, .leOp, .geOp, .matchOp, .notMatchOp, .kwIn:
         return BP.comparison
     case .plus, .minus:
         return BP.addSub
@@ -627,7 +639,8 @@ private func parseInfix(
     _ stream: inout TokenStream,
     lhs: Expression,
     lbp: Int,
-    getlinePipe: Bool
+    getlinePipe: Bool,
+    allowGT: Bool = true
 ) throws -> Expression {
     let tok = stream.first!          // caller verified lbp is non-nil ∴ tok exists
 
@@ -652,13 +665,13 @@ private func parseInfix(
     // Logical OR
     case .borOp:
         stream = stream.dropFirst(); try skipNL().parse(&stream)
-        let rhs = try parseExpr(&stream, minBP: BP.logicalOr + 1, getlinePipe: getlinePipe)
+        let rhs = try parseExpr(&stream, minBP: BP.logicalOr + 1, getlinePipe: getlinePipe, allowGT: allowGT)
         return .logicalOr(lhs.notnull(), rhs.notnull())
 
     // Logical AND
     case .andOp:
         stream = stream.dropFirst(); try skipNL().parse(&stream)
-        let rhs = try parseExpr(&stream, minBP: BP.logicalAnd + 1, getlinePipe: getlinePipe)
+        let rhs = try parseExpr(&stream, minBP: BP.logicalAnd + 1, getlinePipe: getlinePipe, allowGT: allowGT)
         return .logicalAnd(lhs.notnull(), rhs.notnull())
 
     // Pipe to getline: cmd | getline [var]
@@ -676,22 +689,22 @@ private func parseInfix(
     // Comparison operators (non-associative)
     case .eqOp:
         stream = stream.dropFirst()
-        return .equal(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe))
+        return .equal(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .neOp:
         stream = stream.dropFirst()
-        return .notEqual(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe))
+        return .notEqual(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .ltOp:
         stream = stream.dropFirst()
-        return .lessThan(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe))
+        return .lessThan(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .leOp:
         stream = stream.dropFirst()
-        return .lessEqual(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe))
+        return .lessEqual(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .gtOp:
         stream = stream.dropFirst()
-        return .greaterThan(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe))
+        return .greaterThan(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .geOp:
         stream = stream.dropFirst()
-        return .greaterEqual(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe))
+        return .greaterEqual(lhs, try parseExpr(&stream, minBP: BP.comparison + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .matchOp:
         stream = stream.dropFirst()
         return .patternMatch(lhs, try regexOrExpr(&stream, getlinePipe: getlinePipe))
@@ -709,13 +722,13 @@ private func parseInfix(
     // Arithmetic
     case .plus:
         stream = stream.dropFirst()
-        return .add(lhs, try parseExpr(&stream, minBP: BP.addSub + 1, getlinePipe: getlinePipe))
+        return .add(lhs, try parseExpr(&stream, minBP: BP.addSub + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .minus:
         stream = stream.dropFirst()
-        return .subtract(lhs, try parseExpr(&stream, minBP: BP.addSub + 1, getlinePipe: getlinePipe))
+        return .subtract(lhs, try parseExpr(&stream, minBP: BP.addSub + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .star:
         stream = stream.dropFirst()
-        return .multiply(lhs, try parseExpr(&stream, minBP: BP.mulDiv + 1, getlinePipe: getlinePipe))
+        return .multiply(lhs, try parseExpr(&stream, minBP: BP.mulDiv + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .slash:
         stream = stream.dropFirst()
         // Disambiguate /= (division-assign) from plain division
@@ -724,13 +737,13 @@ private func parseInfix(
             guard let lv = lhs.asLValue() else { throw ParseError("Left side of '/=' must be assignable") }
             return .assign(.divSet, lv, try parseExpr(&stream, minBP: BP.assignment - 1, getlinePipe: true))
         }
-        return .divide(lhs, try parseExpr(&stream, minBP: BP.mulDiv + 1, getlinePipe: getlinePipe))
+        return .divide(lhs, try parseExpr(&stream, minBP: BP.mulDiv + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .percent:
         stream = stream.dropFirst()
-        return .modulo(lhs, try parseExpr(&stream, minBP: BP.mulDiv + 1, getlinePipe: getlinePipe))
+        return .modulo(lhs, try parseExpr(&stream, minBP: BP.mulDiv + 1, getlinePipe: getlinePipe, allowGT: allowGT))
     case .powerOp:
         stream = stream.dropFirst()
-        return .power(lhs, try parseExpr(&stream, minBP: BP.power - 1, getlinePipe: getlinePipe)) // right-assoc
+        return .power(lhs, try parseExpr(&stream, minBP: BP.power - 1, getlinePipe: getlinePipe, allowGT: allowGT)) // right-assoc
 
     // Postfix ++ / --
     case .incrOp:
