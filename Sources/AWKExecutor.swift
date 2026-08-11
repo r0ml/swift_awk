@@ -40,10 +40,29 @@ import Synchronization
 
 extension RuntimeState {
 
+  func isclvar(_ s : String) -> Bool { // is s of form var=something ?
+    guard let sf = s.first else { return false }
+    guard sf.isLetter || sf == "_" else { return false }
+    let k = s.split(separator: "=")
+    guard k.count == 2 else { return false }
+    guard (k[0].allSatisfy { $0.isLetter || $0.isWholeNumber || $0 == "_" }) else { return false }
+    return true
+  }
+
+  func setclvar(_ ss : String) async { // set var=value from s
+    let k = ss.split(separator: "=")
+    let p = String(k[1])
+    let s = String(k[0])
+    await setsym(s, ValueCell(string: p))
+    DPRINTF("command line set \(s) to |\(p)|\n")
+  }
+
+
+
 // this function was copied from sed (process.swift) where it is caslled mf_gets
   /// this function gets the next line for processing from a list of files read sequentially
   /// it is also the awk function GETLINE
-  func awkGets() throws -> String? {
+  func awkGets() async throws -> String? {
     while !quit {
       if nil != self.inp {
         // FIXME: should NR and FNR be incremented here or in the callers?
@@ -57,7 +76,20 @@ extension RuntimeState {
         }
       } else {
         // This is where the next file is opened
-        if self.filelist.isEmpty { return nil }
+        if self.filelist.isEmpty {
+          if hadAnInputFile {
+            break
+          }
+          hadAnInputFile = true
+          filelist.append("-")
+//          self.inp = FileDescriptor.standardInput.syncBytes.records(rs: RS).makeIterator()
+        }
+        if isclvar(filelist.first!) {
+          await setclvar(filelist.removeFirst())
+          continue
+        }
+        
+        hadAnInputFile = true
         if let i = try mf_next_file() {
           self.inp = i
         } else {
@@ -137,7 +169,7 @@ extension RuntimeState {
     // --- Per-record body ---
     if !program.rules.isEmpty || !program.endRules.isEmpty {
     getr:
-      while let rec = try? awkGets() {
+      while let rec = try? await awkGets() {
           NR += 1; FNR += 1
           record = rec
           
@@ -617,7 +649,7 @@ extension RuntimeState {
   func execGetline(lv: LValue?)  async throws -> Cell {
     // Bare getline — read next record from current input (stdin)
     // For simplicity, read from stdin
-    guard let line = try awkGets() else {
+    guard let line = try await awkGets() else {
       return ValueCell(number: 0)
     }
     if let lv {

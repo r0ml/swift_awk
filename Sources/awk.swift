@@ -108,8 +108,8 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
       case "v":  /* -v a=1 to be done NOW.  one -v for each */
         let vn = v
-          if (isclvar(vn)) {
-          await setclvar(vn)
+          if (await runtime.isclvar(vn)) {
+            await runtime.setclvar(vn)
         }
         else {
           throw CmdErr(2, "invalid -v option argument: \(vn)")
@@ -191,6 +191,8 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
     } catch(let e) {
       throw CmdErr(2, "\(e)")
     }
+
+    throw await CmdErr(Int(runtime.exitCode))
   }
 
   var usage : String { "usage: \(programName) [-F fs] [-v var=value] [-f progfile | 'prog'] [file ...]" }
@@ -203,23 +205,6 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
         print(s)
       }
     }
-  }
-
-  func isclvar(_ s : String) -> Bool { // is s of form var=something ?
-    guard let sf = s.first else { return false }
-    guard sf.isLetter || sf == "_" else { return false }
-    let k = s.split(separator: "=")
-    guard k.count == 2 else { return false }
-    guard (k[0].allSatisfy { $0.isLetter || $0.isWholeNumber || $0 == "_" }) else { return false }
-    return true
-  }
-
-  func setclvar(_ ss : String) async { // set var=value from s
-    let k = ss.split(separator: "=")
-    let p = String(k[1])
-    let s = String(k[0])
-    await runtime.setsym(s, ValueCell(string: p))
-    DPRINTF("command line set \(s) to |\(p)|\n")
   }
 
 

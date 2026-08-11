@@ -42,7 +42,6 @@ actor RuntimeState {
 // when this goes to "true" I need to wrap it up -- copied from sed
   var quit = false
 
-  var curpfile = 0
   var symtab = AwkDictionary()
 
   var options = awk.CommandOptions()
@@ -95,7 +94,8 @@ actor RuntimeState {
   var functions: [String: FunctionDefinition] = [:]
 
   // MARK: I/O
-  // FIXME: get rid of these?
+  // FIXME: implement input files
+  var hadAnInputFile = false
     var openFiles: [AWKFile] = []
 //  var inputFiles: [AWKFile] = []   // queue of input files/stdin
 
