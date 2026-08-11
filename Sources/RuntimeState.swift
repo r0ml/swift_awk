@@ -253,23 +253,23 @@ extension RuntimeState {
       case .read:
         do {
           let fh = name == "-" ? FileDescriptor.standardInput : try FileDescriptor(forReading: name)
-            f = AWKFile(name: name, mode: mode, handle: fh)
+          f = AWKFile(name: name, mode: mode, handle: fh)
         } catch(let e) {
           throw AWKRuntimeError("cannot open '\(name)' for reading: \(e)")
         }
       case .outputPipe:
 
-        
+
         let proc = DarwinProcess()
         let pipe = try FileDescriptor.pipe()
 
         Task {
           do {
             // k is pid
-            let k = try await proc.launch("/bin/zsh", withStdin: pipe.readEnd, args: "-c",
-                                  name,
-                                             output: (nil, nil))
-              //            print(k)
+            let k = try await proc.launch("/bin/sh", withStdin: pipe.readEnd, args: "-c",
+                                          name,
+                                          output: (nil, nil))
+            //            print(k)
 
           } catch(let e) {
             print(e.localizedDescription)
@@ -278,13 +278,21 @@ extension RuntimeState {
         f = AWKFile(name: name, mode: mode, handle: pipe.writeEnd, proc: proc)
 
       case .inputPipe:
-        // FIXME: this does nothing -- no test cases for inputPipe
         let proc = DarwinProcess()
         let pipe = try FileDescriptor.pipe()
 
-//        try await proc.run("/bin/sh", args: "-c", name)
-//        proc.standardOutput = pipe
-        f = AWKFile(name: name, mode: mode, handle: pipe.readEnd)
+        do {
+          _ = try await proc.launch("/bin/sh", args: "-c", name, output: (pipe.writeEnd, pipe.writeEnd))
+        } catch(let e) {
+          throw AWKRuntimeError("cannot run '\(name)': \(e)")
+        }
+        // posix_spawn dup2's pipe.writeEnd into the child; our own copy must be
+        // closed here or the pipe will never see EOF once the child exits,
+        // because the kernel still sees an open writer (us) -- readRecord()
+        // would then block forever on pipe.readEnd.
+        try? pipe.writeEnd.close()
+
+        f = AWKFile(name: name, mode: mode, handle: pipe.readEnd, proc: proc)
     }
     openFiles.append(f)
     return f
