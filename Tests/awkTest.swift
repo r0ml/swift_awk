@@ -164,14 +164,15 @@ def
   }
 
   @Test("T.argv.8") func T_argv_8() async throws {
-    let ip = """
+    let ip = try tmpfile("foo8", """
     1
     2
     3
-    """
+    """)
 
-    let env = ["LC_CTYPE": "en_US.LATIN1", "SHELLDEBUGGING" : "1"]
-    try await run( withStdin: ip, output: "111\n112\n113\n221\n222\n223\n", args: "{print L $0}", "L=11", ip, "L=22", ip, env: env)
+
+//    let env = ["LC_CTYPE": "en_US.LATIN1", "SHELLDEBUGGING" : "1"]
+    try await run( output: "111\n112\n113\n221\n222\n223\n", args: "{print L $0}", "L=11", ip, "L=22", ip) //, env: env)
   }
 
   @Test("T.argv.9") func T_argv_9() async throws {
@@ -180,6 +181,69 @@ def
     try await run( output: "3.345\n", args: "BEGIN { print ARGV[1] + ARGV[2] }", "1", "2.345")
   }
 
+  @Test("T.argv.10") func T_argv_10() async throws {
+
+
+    let env = ["x1":"1", "x2":"2.345"]
+    try await run( output: "3.345\n", args: "BEGIN { print ENVIRON[\"x1\"] + ENVIRON[\"x2\"] }", "1", "2.345", env: env)
+  }
+
+
+  @Test("T.argv.11") func T_argv_11() async throws {
+    let foo1 = try tmpfile("foo1", "foo1\n")
+        let foo2 = try tmpfile("foo2", "foo2\n")
+        let foo3 = try tmpfile("foo3", "foo3\n")
+
+    defer { rm(foo1, foo2, foo3) }
+
+    try await run( output: "foo1\nfoo3\n", args: """
+    BEGIN { ARGV[2] = "" }
+                   { print }
+    """, foo1, foo2, foo3)
+  }
+
+  @Test("T.argv.12") func T_argv_12() async throws {
+    let foo1 = try tmpfile("hi", "foo1\n")
+    let foo2 = try tmpfile("foo2")
+    rm(foo2)
+    try foo1.rename(to: foo2)
+
+    defer { rm(foo2) }
+
+    try await run( output: "\nfoo2\n", args: """
+    BEGIN { ARGV[1] = "foo2" ; print FILENAME }
+         { print FILENAME }
+    """, "foo1", cd: tmpdir() )
+  }
+
+  @Test("T.argv.13") func T_argv_13() async throws {
+    let f1 = """
+ARGV[3] is /dev/null
+ARGV[0] is \(cmd)
+ARGV[1] is /dev/null
+
+"""
+
+    let foo1 = try tmpfile("foo1", f1)
+    let prog = """
+    BEGIN {   # this is a variant of arnolds original example
+            ARGV[1] = "/dev/null"
+            ARGV[2] = "glotch"  # file open must skipped deleted argv
+            ARGV[3] = "/dev/null"
+            ARGC = 4
+            delete ARGV[2]
+    }
+    # note that input is read here
+    END {
+            for (i in ARGV)
+                    printf("ARGV[%d] is %s\\n", i, ARGV[i])
+    }
+    """
+
+    defer { rm(foo1) }
+
+    try await run( output: f1, args: prog)
+  }
 
 
 
