@@ -1,0 +1,14 @@
+
+import ShellTesting
+
+extension awkTest {
+
+  @Suite("T.clv") struct Tclv : ShellTest {
+    var cmd = "awk"
+    var suiteBundle = "awk_awkTest"
+
+
+    @Test("first") func first() async throws {
+    }
+  }
+}
