@@ -44,7 +44,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
     var pfile : [String] = []
     var fs : String = ""
     var dbg : Int = 0
-    var lexprog : String? = nil
+    var lexprog : String = ""
     var programName : String = ""
     var args : [String] = []
   }
@@ -52,16 +52,6 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
   var options : CommandOptions!
 
   var runtime = RuntimeState.shared
-
-
-
-
-  /*
-   if ((p = strrchr(argv[0], '/')) == NULL)
-   p = argv[0];
-   else
-   ++p;
-   */
 
     func parseOptions() async throws(CmdErr) -> CommandOptions {
 
@@ -98,7 +88,8 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
       case "f":  // next argument is program filename
           do {
-            options.lexprog = try readFileAsString(at: v)
+            let k = try readFileAsString(at: v)
+            options.lexprog += k
           } catch(let e) {
             throw CmdErr(1, "unable to read program file \(v): \(e.localizedDescription)")
           }
@@ -165,6 +156,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
   func runCommand() async throws(CmdErr) {
     await runtime.setOptions(options)
+    await runtime.argvInit()
 
     if (!options.safe) {
       await runtime.envinit()

@@ -161,7 +161,22 @@ class EmptyCell : Cell {
   var isNumber = true
 }
 
-class Dictionary : Cell {
+protocol Keyed {
+  subscript (key: String) -> Cell? {get set }
+  var keys : [String] {get}
+}
+
+class Dictionary : Cell, Keyed {
+  subscript(key: String) -> (any Cell)? {
+    get {
+      return dict[key]
+    }
+    set {
+      dict[key] = newValue
+    }
+  }
+
+  var keys : [String] { dict.keys }
   var dict = AwkDictionary()
 
   var isNumber = false
@@ -235,6 +250,39 @@ struct BuiltInNumber : Cell {
   func length() -> Int {
     return asString().count
   }
+}
+
+struct BuiltInDict : Cell, Keyed {
+  subscript(key: String) -> (any Cell)? {
+    get {
+      getter(key)
+    }
+    set {
+      setter(key, newValue)
+    }
+  }
+
+  init( _ g : @escaping (String)->Cell,
+        _ s : @escaping (String,Cell?)-> (),
+        _ k : @escaping () -> [String] ) {
+    self.getter = g
+    self.setter = s
+    self.keyer = k
+  }
+  
+  var getter : (String) -> Cell
+  var setter : (String, Cell?) -> ()
+  var keyer : () -> [String]
+
+  var keys : [String] { keyer() }
+
+  func length() -> Int {
+    return keyer().count
+  }
+  
+  let isNumber = false
+
+
 }
 
 func awkFormat( _ fmt : String, _ n : Double) -> String {

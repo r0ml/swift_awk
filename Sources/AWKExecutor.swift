@@ -143,15 +143,6 @@ extension RuntimeState {
     
     for fn in program.functions { functions[fn.name] = fn }
     
-    // Set up ARGV / ARGC
-    let argc = self.options.args.count + 1
-    var argv : [Cell] = [ValueCell(string: CommandLine.arguments[0])]
-    for (_, a) in options.args.enumerated() {
-      argv.append(ValueCell(string: a))
-    }
-    setsym("ARGV", Dictionary(array: argv))
-    setsym("ARGC", ValueCell(number: argc))
-    
     // Range-pattern pairstack
     pairstack = Array(repeating: false, count: program.rules.count)
     
@@ -327,14 +318,14 @@ extension RuntimeState {
     let key = subscriptKey(parts)
     var elres : Cell = EmptyCell()
     let _ = try resolveVar(name) { arr in
-      if arr is Dictionary {
-        let ee = (arr as! Dictionary).dict
+      if arr is Keyed {
+        var ee = arr as! Keyed
         elres = ee[key] ?? EmptyCell()
         if let store {
           let res = try store(elres)
           ee[key]=res
           elres = res
-          return Dictionary(dict: ee)
+          return ee as! any Cell
         }
       } else {
         if let store {
@@ -501,11 +492,10 @@ extension RuntimeState {
         for k in keys { parts.append(try await eval(k).asString()) }
         let key = subscriptKey(parts)
         let _ = try resolveVar(name) {ee in
-          if ee is Dictionary {
-            let aa = (ee as! Dictionary).dict
-            // FIXME: aa has to be stored back?
-            aa.removeValue(forKey: key)
-            return Dictionary(dict: aa)
+          if ee is Keyed {
+            var aa = ee as! Keyed
+            aa[key]=nil
+            return aa as! any Cell
           }
           return ee
         }
@@ -538,19 +528,32 @@ extension RuntimeState {
     
     let frame = CallFrame(funcName: name, paramNames: fn.params, cells: cells, callLVals: lvals)
     callStack.append(frame)
-    defer { callStack.removeLast() }
 
     var retval : Cell
     do {
-      try await execBlock(fn.body)
-      retval = callStack.last?.retval ?? EmptyCell()
-    } catch AWKSignal.`return` {
-      retval = self.retval
+      do {
+        try await execBlock(fn.body)
+        retval = callStack.last?.retval ?? EmptyCell()
+      } catch AWKSignal.`return` {
+        retval = self.retval
+      }
+    } catch {
+      callStack.removeLast()
+      throw error
     }
-    // Before returning, if any of the args are variables, then if the corresponding frame values have
-    // been updated, the variable argumnet must be updated
-    // Alternatively, the call frame can handle the update when it happens
-//    for (lv, c) in zip(lvals, callStack.last!.cells) {
+
+    // Arrays are passed by reference in awk. If an argument was a bare variable (or array
+    // element) and the corresponding parameter turned into/held an array inside the function,
+    // write that array back to the caller's storage so the two stay aliased. This matters
+    // most the first time an uninitialized global is passed into a function to be filled in
+    // (e.g. `function set(a, s) {...}; set(dc, "...")`) — until now the array built inside
+    // the call was thrown away when the frame popped, leaving the caller's array empty.
+    let finalCells = callStack.last!.cells
+    callStack.removeLast()
+    for (lv, cell) in zip(lvals, finalCells) {
+      guard let lv, cell is Keyed else { continue }
+      _ = try await evalLValue(lv) { _ in cell }
+    }
 
     return retval
   }

@@ -288,7 +288,12 @@ private func parseDoWhile() -> Parser<Statement> {
         guard stream.first == .lparen else { throw ParseError("Expected '(' after 'while'") }
         stream = stream.dropFirst()
         let cond = try pattern().parse(&stream)
-        try rparen_().parse(&stream)
+        // Note: plain ')' here, not rparen_() — the newline right after the
+        // closing paren is the do-while's statement terminator (consumed by
+        // stEnd() below), not an "optional nl before body" separator like
+        // if/while/for use rparen_() for.
+        guard stream.first == .rparen else { throw ParseError("Expected ')' after do-while condition") }
+        stream = stream.dropFirst()
         try stEnd().parse(&stream)
         return .doWhile(body, cond.notnull())
     }

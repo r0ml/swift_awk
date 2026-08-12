@@ -84,7 +84,6 @@ actor RuntimeState {
   var errorflag = false  // 1 if error has occurred
   var donefld = false  // true if record broken into fields
   var donerec = true  // true if record is valid (no fld has changed
-  var ARGVtab : [Cell] = [] // symbol table containing ARGV[...]
   var ENVtab : [String : Cell] = [:] // symbol table containing ENVIRON[...]
   var callStack: [CallFrame] = []
   var inEndBlock = false   // disables donefld update in END
@@ -117,6 +116,8 @@ actor RuntimeState {
   var RSTART : Double = 0
   var RLENGTH : Double = 0
 
+  var ARGV : [String] = []
+  
   var exitCode: Int32 = 0
 
   // For AwkSignal -- Cell is not Sendable, so can't use return value as case argument
@@ -141,13 +142,18 @@ extension RuntimeState {
     }
     symtab[n] = s
   }
-  
+
+  // FIXME: make ENVIRON a BuiltInDict that reads actual environment variables?
   func envinit() async { // set up ENVIRON variable
     let aa = AwkDictionary()
     for (k, v) in Environment.getenv() { aa[k]=ValueCell(string: v) }
     setsym("ENVIRON", Dictionary(dict: aa))
   }
 
+  func argvInit() {
+    ARGV = [options.programName] + options.args
+  }
+  
   func syminit() { // initialize symbol table with builtin vars
     
     // literal0 =
@@ -175,7 +181,45 @@ extension RuntimeState {
     setsym("SUBSEP", BuiltInString( { self.SUBSEP }, { self.SUBSEP = $0 } ))
     setsym("RSTART", BuiltInNumber( { self.RSTART }, { self.RSTART = $0 } ))
     setsym("RLENGTH", BuiltInNumber( { self.RLENGTH }, { self.RLENGTH = $0 } ))
-    
+
+    setsym("ARGC", BuiltInNumber( {
+      return Double(1+self.filelist.count)
+    }, {acx in
+      let ac = Int(acx)
+      if ac < self.ARGV.count {
+        self.ARGV = Array(self.ARGV.prefix(ac))
+      } else {
+        while self.ARGV.count < ac {
+          // FIXME: must be nil
+          self.ARGV.append("")
+        }
+      }
+    }) )
+
+    setsym("ARGV", BuiltInDict( {
+      return if let z = Int($0) {
+//        if z == 0 {
+//          ValueCell(string: self.options.programName )
+//        } else {
+          ValueCell(string: self.ARGV[z])
+//        }
+      } else { EmptyCell() }
+    }, {
+      if let z = Int($0) {
+        let nv = $1?.asString() ?? ""
+//        if z == 0 {
+//          self.options.programName = nv
+//        } else {
+          self.ARGV[z] = nv
+//        }
+      }
+    }, {
+      ["0"] + self.filelist.indices.map { String($0+1) }
+    }
+                              ))
+
+
+
     // FIXME: is this really necessary?
     setsym("SYMTAB", Dictionary(dict: symtab))
     //    setsymtab("SYMTAB", "", 0.0, [.ARR])

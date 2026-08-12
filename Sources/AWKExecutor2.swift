@@ -86,11 +86,11 @@ extension RuntimeState {
         
       case .forIn(let varName, let arrName, let body):
         let arrCell = try resolveVar(arrName, nil)
-        guard arrCell is Dictionary else { return }
-        
+        guard arrCell is Keyed else { return }
+
         // Snapshot keys to allow modification during iteration
-        let aa = (arrCell as! Dictionary).dict
-        let keys = Array(aa.keys)
+        let aa = arrCell as! Keyed
+        let keys = aa.keys
         for key in keys {
           guard let _ = aa[key] else { continue }
           try await storeVar(varName, ValueCell(string: key))
@@ -221,8 +221,8 @@ extension RuntimeState {
       case .inArray(let e, let arrName):
         let key = try await eval(e).asString()
         let arr = try resolveVar(arrName, nil)
-        if arr is Dictionary {
-          return ValueCell(number: (arr as! Dictionary).dict[key] == nil ? 0 : 1)
+        if arr is Keyed {
+          return ValueCell(number: (arr as! Keyed)[key] == nil ? 0 : 1)
         } else {
           return ValueCell(number: 0)
         }
@@ -235,8 +235,8 @@ extension RuntimeState {
 
         let key = subscriptKey(parts)
         let arr = try resolveVar(arrName, nil)
-        if arr is Dictionary {
-          let k = (arr as! Dictionary).dict[key]
+        if arr is Keyed {
+          let k = (arr as! Keyed)[key]
           return ValueCell(number: k != nil ? 1 : 0 )
         } else {
           return ValueCell(number: 0)

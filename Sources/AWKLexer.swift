@@ -30,7 +30,7 @@ THIS SOFTWARE.
 
 struct LexError: Error, CustomStringConvertible {
     let message: String
-    var description: String { message }
+    var description: String { "lexical error: " + message }
     init(_ msg: String) { message = msg }
 }
 
@@ -273,8 +273,7 @@ struct AWKLexer {
       case "BEGIN":               return .xbegin
       case "END":                 return .xend
       case "func", "function":    return .funcKeyword
-        // Special variable
-//      case "NF":                  return .varnf
+
         // Control flow
       case "break":               return .kwBreak
       case "continue":            return .kwContinue
