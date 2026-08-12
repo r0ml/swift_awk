@@ -98,7 +98,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
       case "F":  /* set field separator */
           if v.isEmpty { throw CmdErr(1, "field separator FS is empty") }
-        options.fs = v
+        options.fs = v == "t" ? "\t" : v  // -F t is a historical shorthand for tab
 
       case "v":  /* -v a=1 to be done NOW.  one -v for each */
         let vn = v

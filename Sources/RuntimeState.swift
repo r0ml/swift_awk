@@ -167,6 +167,7 @@ extension RuntimeState {
     
     // fsloc =
     setsym("FS", BuiltInString( { self.FS }, { self.FS = $0 } ) )
+    if !options.fs.isEmpty { self.FS = options.fs }
     setsym("RS", BuiltInString( { self.RS }, { self.RS = $0 } ))
     setsym("OFS", BuiltInString( { self.OFS }, { self.OFS = $0 } ))
     setsym("ORS", BuiltInString( { self.ORS }, { self.ORS = $0 } ))

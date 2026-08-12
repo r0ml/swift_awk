@@ -16,7 +16,7 @@ extension awkTest {
     }
 
     @Test("T.main.3") func T_main_3() async throws {
-      try await run(withStdin: "a b c\n", output: "3\n", args: "-F", "t", "{print NF}")
+      try await run(withStdin: "a\tb\tc\n", output: "3\n", args: "-F", "t", "{print NF}")
     }
 
     @Test("T.main.4") func T_main_4() async throws {
