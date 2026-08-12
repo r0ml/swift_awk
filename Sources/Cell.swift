@@ -262,7 +262,7 @@ struct BuiltInDict : Cell, Keyed {
     }
   }
 
-  init( _ g : @escaping (String)->Cell,
+  init( _ g : @escaping (String)->Cell?,
         _ s : @escaping (String,Cell?)-> (),
         _ k : @escaping () -> [String] ) {
     self.getter = g
@@ -270,7 +270,7 @@ struct BuiltInDict : Cell, Keyed {
     self.keyer = k
   }
   
-  var getter : (String) -> Cell
+  var getter : (String) -> Cell?
   var setter : (String, Cell?) -> ()
   var keyer : () -> [String]
 

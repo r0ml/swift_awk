@@ -76,21 +76,22 @@ extension RuntimeState {
         }
       } else {
         // This is where the next file is opened
-        if self.filelist.isEmpty {
+        if self.fileNdx >= ARGV.count {
           if hadAnInputFile {
             break
           }
-          hadAnInputFile = true
-          filelist.append("-")
-//          self.inp = FileDescriptor.standardInput.syncBytes.records(rs: RS).makeIterator()
+ //          self.inp = FileDescriptor.standardInput.syncBytes.records(rs: RS).makeIterator()
         }
-        if isclvar(filelist.first!) {
-          await setclvar(filelist.removeFirst())
+        if fileNdx < ARGC,
+            let z = ARGV[String(fileNdx)],
+           isclvar(z.asString()) {
+          await setclvar(z.asString())
+          fileNdx += 1
           continue
         }
         
-        hadAnInputFile = true
         if let i = try mf_next_file() {
+          hadAnInputFile = true
           self.inp = i
         } else {
           break
@@ -109,28 +110,41 @@ extension RuntimeState {
   // copied from sed (process.swift)
   /// advances to the next input file in the list
   func mf_next_file() throws(CmdErr) -> SyncRecordReader.Iterator? {
-    if self.filelist.isEmpty {
-      return nil
-    }
-
-    // get the first file and use it up
-    let fnam = self.filelist.removeFirst()
-    // open file
-    if fnam == "-"  || fnam == "/dev/stdin" {
-      FILENAME = "stdin"
-      FNR = 0
-      let k = FileDescriptor.standardInput.syncBytes
-      let j = k.records(rs: RS.first!)
-      return j.makeIterator()
-    } else {
-      do {
-        FILENAME = fnam
+    repeat {
+      if self.fileNdx >= ARGV.count {
+        if hadAnInputFile {
+          return nil
+        }
+        let z = FileDescriptor.standardInput.syncBytes.records(rs: RS.first!).makeIterator()
+        hadAnInputFile = true
+        FILENAME = "stdin"
         FNR = 0
-        return try FileDescriptor(forReading: fnam).syncBytes.records(rs: RS.first!).makeIterator()
-      } catch {
-        throw CmdErr(1, "\(fnam): \(error)")
+        return z
       }
-    }
+
+      // get the first file and use it up
+      guard let fnam = self.ARGV[String(fileNdx)]?.asString() else { fileNdx += 1; continue }
+      fileNdx +=  1
+      if fnam.isEmpty { continue}
+
+      // open file
+      if fnam == "-"  || fnam == "/dev/stdin" {
+        FILENAME = "stdin"
+        FNR = 0
+        let k = FileDescriptor.standardInput.syncBytes
+        let j = k.records(rs: RS.first!)
+        return j.makeIterator()
+      } else {
+        do {
+          FILENAME = fnam
+          FNR = 0
+          return try FileDescriptor(forReading: fnam).syncBytes.records(rs: RS.first!).makeIterator()
+        } catch {
+          throw CmdErr(1, "\(fnam): \(error)")
+        }
+      }
+    } while true
+    fatalError("cannot get here?")
   }
 
   // MARK: - Main entry point
@@ -139,8 +153,12 @@ extension RuntimeState {
   // C: run() + getrec() loop — run.c / lib.c
   func run(_ program: AWKProgram, inputPaths: [String] = []) async throws {
     // Populate function table
-    filelist = inputPaths
-    
+    self.ARGC = 1+inputPaths.count
+    self.ARGV["0"]=ValueCell(string: options.programName)
+    for (i, x) in inputPaths.enumerated() {
+      self.ARGV[String(i+1)] = ValueCell(string: x)
+    }
+
     for fn in program.functions { functions[fn.name] = fn }
     
     // Range-pattern pairstack

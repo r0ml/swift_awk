@@ -44,8 +44,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
     var pfile : [String] = []
     var fs : String = ""
     var dbg : Int = 0
-    var lexprog : String = ""
-    var hasProgramFile : Bool = false
+    var lexprog : String?
     var programName : String = ""
     var args : [String] = []
   }
@@ -90,8 +89,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
       case "f":  // next argument is program filename
           do {
             let k = try readFileAsString(at: v)
-            options.lexprog += k
-            options.hasProgramFile = true
+            options.lexprog = (options.lexprog ?? "")  + k
           } catch(let e) {
             throw CmdErr(1, "unable to read program file \(v): \(e.localizedDescription)")
           }
@@ -140,7 +138,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
  //   runtime.yyin = nil
  //   symtab = makesymtab(NSYMTAB/NSYMTAB);
 
-    if !options.hasProgramFile {  // no -f; first argument is program
+      if options.lexprog == nil {  // no -f; first argument is program
       if (options.args.count < 1) {
         if options.dbg != 0 {
           exit(0);
@@ -158,7 +156,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
   func runCommand() async throws(CmdErr) {
     await runtime.setOptions(options)
-    await runtime.argvInit()
+//    await runtime.argvInit()
 
     if (!options.safe) {
       await runtime.envinit()

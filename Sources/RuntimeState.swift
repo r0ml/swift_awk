@@ -72,8 +72,8 @@ actor RuntimeState {
 //  var tmpfname : FilePath?
 
     // instead of inputFiles and openFiles below?
-  var filelist : [String] = []
-
+//  var filelist : [String] = []
+  var fileNdx = 1 // ARGaV[0] = progname
 
   var dbg = 0
   
@@ -116,8 +116,10 @@ actor RuntimeState {
   var RSTART : Double = 0
   var RLENGTH : Double = 0
 
-  var ARGV : [String] = []
-  
+  // strange, I know.  Should be an array, but One True Awk has dictionary semantics for ARGV
+  var ARGV = AwkDictionary()
+  var ARGC = 0
+
   var exitCode: Int32 = 0
 
   // For AwkSignal -- Cell is not Sendable, so can't use return value as case argument
@@ -150,9 +152,10 @@ extension RuntimeState {
     setsym("ENVIRON", Dictionary(dict: aa))
   }
 
-  func argvInit() {
+/*  func argvInit() {
     ARGV = [options.programName] + options.args
   }
+  */
   
   func syminit() { // initialize symbol table with builtin vars
     
@@ -184,38 +187,17 @@ extension RuntimeState {
     setsym("RLENGTH", BuiltInNumber( { self.RLENGTH }, { self.RLENGTH = $0 } ))
 
     setsym("ARGC", BuiltInNumber( {
-      return Double(1+self.filelist.count)
+      return Double(self.ARGC)
     }, {acx in
-      let ac = Int(acx)
-      if ac < self.ARGV.count {
-        self.ARGV = Array(self.ARGV.prefix(ac))
-      } else {
-        while self.ARGV.count < ac {
-          // FIXME: must be nil
-          self.ARGV.append("")
-        }
-      }
-    }) )
+      self.ARGC = Int(acx)
+    }))
 
     setsym("ARGV", BuiltInDict( {
-      return if let z = Int($0) {
-//        if z == 0 {
-//          ValueCell(string: self.options.programName )
-//        } else {
-          ValueCell(string: self.ARGV[z])
-//        }
-      } else { EmptyCell() }
+      return self.ARGV[$0]
     }, {
-      if let z = Int($0) {
-        let nv = $1?.asString() ?? ""
-//        if z == 0 {
-//          self.options.programName = nv
-//        } else {
-          self.ARGV[z] = nv
-//        }
-      }
+        self.ARGV[$0] = $1
     }, {
-      ["0"] + self.filelist.indices.map { String($0+1) }
+      self.ARGV.keys
     }
                               ))
 

@@ -75,7 +75,9 @@ def
     """
 
 
-      let env = ["LC_CTYPE": "en_US.LATIN1"] //, "SHELLDEBUGGING" : "1"]
+      let env = ["LC_CTYPE": "en_US.LATIN1",
+//      "SHELLDEBUGGING" : "1"
+      ]
 
 
       try await run( withStdin: ip, output: "foo1\nfoo2\nfoo3\n", args: "{print L $0}", "L=foo", env: env)
@@ -146,10 +148,14 @@ def
 
       defer { rm(foo1, foo2, foo3) }
 
+      let env = ["LC_CTYPE": "en_US.LATIN1",
+//      "SHELLDEBUGGING" : "1"
+      ]
+
       try await run( output: "foo1\nfoo3\n", args: """
     BEGIN { ARGV[2] = "" }
                    { print }
-    """, foo1, foo2, foo3)
+    """, foo1, foo2, foo3, env: env)
     }
 
     @Test("T.argv.12") func T_argv_12() async throws {
@@ -192,7 +198,11 @@ ARGV[1] is /dev/null
 
       defer { rm(foo1) }
 
-      try await run( output: f1, args: prog)
+      let env = ["LC_CTYPE": "en_US.LATIN1",
+//      "SHELLDEBUGGING" : "1"
+      ]
+
+      try await run( output: f1, args: prog, env: env)
     }
 
   }
