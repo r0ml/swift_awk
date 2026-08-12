@@ -45,6 +45,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
     var fs : String = ""
     var dbg : Int = 0
     var lexprog : String = ""
+    var hasProgramFile : Bool = false
     var programName : String = ""
     var args : [String] = []
   }
@@ -90,6 +91,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
           do {
             let k = try readFileAsString(at: v)
             options.lexprog += k
+            options.hasProgramFile = true
           } catch(let e) {
             throw CmdErr(1, "unable to read program file \(v): \(e.localizedDescription)")
           }
@@ -138,7 +140,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
  //   runtime.yyin = nil
  //   symtab = makesymtab(NSYMTAB/NSYMTAB);
 
-    if options.lexprog == nil {  // no -f; first argument is program
+    if !options.hasProgramFile {  // no -f; first argument is program
       if (options.args.count < 1) {
         if options.dbg != 0 {
           exit(0);
