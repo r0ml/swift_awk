@@ -27,6 +27,7 @@ THIS SOFTWARE.
 
 import CMigration
 import Darwin
+import Foundation
 
 struct CallFrame {
   let funcName: String
@@ -490,17 +491,25 @@ extension RuntimeState {
   // C: fldbld() body — lib.c
   private func splitRecord() {
     let s = record ?? ""
+    // POSIX: in paragraph mode (RS == ""), newline is always an additional field
+    // separator, regardless of what FS is set to.
+    let alsoSplitOnNewline = RS.isEmpty
     if FS == " " {
-      fldtab = s.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+      let charset: CharacterSet = alsoSplitOnNewline ? .whitespacesAndNewlines : .whitespaces
+      fldtab = s.components(separatedBy: charset).filter { !$0.isEmpty }
     } else if FS.count == 1 {
       let sep = Character(FS)
-      if s.isEmpty { fldtab = [] } else {
+      if s.isEmpty { fldtab = [] }
+      else if alsoSplitOnNewline {
+        fldtab = s.split(omittingEmptySubsequences: false) { $0 == sep || $0 == "\n" }.map(String.init)
+      } else {
         fldtab = s.split(separator: sep, omittingEmptySubsequences: false).map(String.init)
       }
     } else if FS.isEmpty {
       fldtab = s.map { String($0) }
     } else {
-      guard let re = try? Regex(FS) else { fldtab = [s]; NF = 1; return }
+      let pattern = alsoSplitOnNewline ? "(?:\(FS))|\n" : FS
+      guard let re = try? Regex(pattern) else { fldtab = [s]; NF = 1; return }
       let range = s.startIndex ..< s.endIndex
       var parts: [String] = []
       var last = s.startIndex

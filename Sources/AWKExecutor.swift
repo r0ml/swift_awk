@@ -115,7 +115,7 @@ extension RuntimeState {
         if hadAnInputFile {
           return nil
         }
-        let z = FileDescriptor.standardInput.syncBytes.records(rs: RS.first!).makeIterator()
+        let z = FileDescriptor.standardInput.syncBytes.records(rs: RS).makeIterator()
         hadAnInputFile = true
         FILENAME = "stdin"
         FNR = 0
@@ -132,13 +132,13 @@ extension RuntimeState {
         FILENAME = "stdin"
         FNR = 0
         let k = FileDescriptor.standardInput.syncBytes
-        let j = k.records(rs: RS.first!)
+        let j = k.records(rs: RS)
         return j.makeIterator()
       } else {
         do {
           FILENAME = fnam
           FNR = 0
-          return try FileDescriptor(forReading: fnam).syncBytes.records(rs: RS.first!).makeIterator()
+          return try FileDescriptor(forReading: fnam).syncBytes.records(rs: RS).makeIterator()
         } catch {
           throw CmdErr(1, "\(fnam): \(error)")
         }

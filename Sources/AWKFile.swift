@@ -82,33 +82,64 @@ public struct SyncByteStream: Sequence {
     Iterator(fd: fd, bufferSize: bufferSize)
   }
   
-  public func records(rs : Character) -> SyncRecordReader {
-    SyncRecordReader(byteStream: self, rs: rs.asciiValue!)
+  // C: RS classification — lib.c/main.c treat RS as: single char (line-at-a-time),
+  // "" (paragraph mode: records separated by one-or-more blank lines, leading blank
+  // lines skipped), or (a one-true-awk extension) a longer string used as an ERE.
+  public func records(rs : String) -> SyncRecordReader {
+    SyncRecordReader(byteStream: self, rs: rs)
   }
-  
+
 }
 
 
+enum RSMode {
+  case char(UInt8)
+  case paragraph
+  case pattern(Regex<AnyRegexOutput>?)
+}
 
 // needs to be a class -- otherwise the struct gets copied and it doesn't work
 public struct SyncRecordReader: Sequence {
   public typealias Element = String
   let byteStream: SyncByteStream
   var encoding : any Unicode.Encoding.Type = UTF8.self
-  var rs : UInt8 = "\n".first!.asciiValue!
+  var mode : RSMode
 
-  public init(byteStream: SyncByteStream, rs: UInt8 = "\n".first!.asciiValue!) {
+  public init(byteStream: SyncByteStream, rs: String) {
     self.byteStream = byteStream
-    self.rs = rs
+    if rs.isEmpty {
+      self.mode = .paragraph
+    } else if rs.count == 1 {
+      self.mode = .char(rs.first!.asciiValue ?? 10)
+    } else {
+      self.mode = .pattern(try? Regex(fixre(rs)))
+    }
   }
-  
+
   public struct Iterator: IteratorProtocol {
     var byteIterator: SyncByteStream.Iterator
     var buffer = [UInt8]()
     var encoding : any Unicode.Encoding.Type = UTF8.self
-    var rs : UInt8 // = "\n".first!.asciiValue!
+    var mode : RSMode
 
-    public mutating func next() -> String? {
+    func decode(_ bytes: [UInt8]) -> String? {
+      switch encoding {
+        case is ISOLatin1.Type:
+          return String(validating: bytes, as: ISOLatin1.self )
+        case is UTF16.Type:
+          let buff = bytes.withUnsafeBytes { $0.load(as: [UInt16].self) }
+          return String(validating: buff, as: UTF16.self )
+        case is UTF32.Type:
+          let buff = bytes.withUnsafeBytes { $0.load(as: [UInt32].self) }
+          return String(validating: buff, as: UTF32.self )
+        case is UTF8.Type:
+          fallthrough
+        default:
+          return String(validating: bytes, as: UTF8.self )
+      }
+    }
+
+    mutating func nextLine(rs: UInt8) -> String? {
       var go = false
       while let byte = byteIterator.next() {
         go = true
@@ -120,33 +151,85 @@ public struct SyncRecordReader: Sequence {
       }
 
       guard go else { return nil }
-      var line : String?
-      switch encoding {
-        case is ISOLatin1.Type:
-          line = String(validating: buffer, as: ISOLatin1.self )
-        case is UTF16.Type:
-          let buff = buffer.withUnsafeBytes { $0.load(as: [UInt16].self) }
-          line = String(validating: buff, as: UTF16.self )
-        case is UTF32.Type:
-          let buff = buffer.withUnsafeBytes { $0.load(as: [UInt32].self) }
-          line = String(validating: buff, as: UTF32.self )
-        case is UTF8.Type:
-          fallthrough
-        default:
-          line = String(validating: buffer, as: UTF8.self )
-      }
-      guard let line else {
-        line = String(validating: buffer, as: ISOLatin1.self )
+      guard let line = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self) else {
         buffer.removeAll()
-        return line
+        return nil
       }
       buffer.removeAll()
       return line
     }
+
+    // C: RS == "" paragraph mode — lib.c
+    mutating func nextParagraph() -> String? {
+      var sawContent = false
+      var newlineRun = 0
+      while let byte = byteIterator.next() {
+        if byte == 0x0A {
+          if !sawContent { continue }  // skip leading/extra blank lines
+          newlineRun += 1
+          buffer.append(byte)
+          if newlineRun >= 2 {
+            while buffer.last == 0x0A { buffer.removeLast() }
+            let record = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self) ?? ""
+            buffer.removeAll()
+            return record
+          }
+        } else {
+          sawContent = true
+          newlineRun = 0
+          buffer.append(byte)
+        }
+      }
+      guard sawContent else { return nil }
+      while buffer.last == 0x0A { buffer.removeLast() }
+      guard !buffer.isEmpty else { return nil }
+      let record = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self) ?? ""
+      buffer.removeAll()
+      return record
+    }
+
+    // C: RS as ERE — a one-true-awk extension for multi-character RS
+    mutating func nextPatternDelimited(_ re: Regex<AnyRegexOutput>?) -> String? {
+      guard let re else { return nextLine(rs: 0x0A) }
+      while true {
+        // A match whose range extends all the way to the end of what's buffered so far
+        // could still grow with more input (e.g. "X+" against "aXX" might yet consume a
+        // third X), so only finalize a match once it's followed by at least one
+        // non-matching byte, confirming a greedy quantifier can't extend it further.
+        if let s = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self),
+           let m = try? re.firstMatch(in: s), !m.range.isEmpty, m.range.upperBound < s.endIndex {
+          let record = String(s[s.startIndex..<m.range.lowerBound])
+          buffer = Array(s[m.range.upperBound...].utf8)
+          return record
+        }
+        guard let byte = byteIterator.next() else {
+          // EOF: a match touching the buffer's end is now final since no more input can arrive.
+          if let s = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self),
+             let m = try? re.firstMatch(in: s), !m.range.isEmpty {
+            let record = String(s[s.startIndex..<m.range.lowerBound])
+            buffer = Array(s[m.range.upperBound...].utf8)
+            return record
+          }
+          guard !buffer.isEmpty else { return nil }
+          let record = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self) ?? ""
+          buffer.removeAll()
+          return record
+        }
+        buffer.append(byte)
+      }
+    }
+
+    public mutating func next() -> String? {
+      switch mode {
+        case .char(let rs): return nextLine(rs: rs)
+        case .paragraph: return nextParagraph()
+        case .pattern(let re): return nextPatternDelimited(re)
+      }
+    }
   }
 
   public func makeIterator() -> Iterator {
-    Iterator(byteIterator: byteStream.makeIterator(), encoding: encoding, rs: rs)
+    Iterator(byteIterator: byteStream.makeIterator(), encoding: encoding, mode: mode)
   }
 }
 
@@ -191,13 +274,23 @@ final class AWKFile : @unchecked Sendable {
       let record = buffer; buffer = ""; return record
     }
     
-    let sep: Character = rs.count == 1 ? Character(rs) : "\n"
-    if let idx = buffer.firstIndex(of: sep) {
-      let record = String(buffer[buffer.startIndex..<idx])
-      buffer.removeSubrange(buffer.startIndex...idx)
+    if rs.count == 1 {
+      let sep = Character(rs)
+      if let idx = buffer.firstIndex(of: sep) {
+        let record = String(buffer[buffer.startIndex..<idx])
+        buffer.removeSubrange(buffer.startIndex...idx)
+        return record
+      }
+      // EOF: return remaining buffer
+      let record = buffer; buffer = ""; return record
+    }
+
+    // Multi-character RS: a one-true-awk extension treating it as an ERE.
+    if let re = try? Regex(fixre(rs)), let m = try? re.firstMatch(in: buffer), !m.range.isEmpty {
+      let record = String(buffer[buffer.startIndex..<m.range.lowerBound])
+      buffer.removeSubrange(buffer.startIndex..<m.range.upperBound)
       return record
     }
-    // EOF: return remaining buffer
     let record = buffer; buffer = ""; return record
   }
   
