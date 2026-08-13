@@ -94,6 +94,12 @@ actor RuntimeState {
   var callStack: [CallFrame] = []
   var inEndBlock = false   // disables donefld update in END
 
+  // Names classified as arrays from a whole-program scan done once at load time (see
+  // AWKProgram.staticArrayVariableNames()). Used to reject scalar assignment to a name
+  // that's used as an array elsewhere in the program, matching awk's own type checking.
+  var declaredArrayNames: Set<String> = []
+  func setDeclaredArrayNames(_ names: Set<String>) { declaredArrayNames = names }
+
 
   // MARK: Function registry (populated before execution)
   var functions: [String: FunctionDefinition] = [:]

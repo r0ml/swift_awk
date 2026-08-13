@@ -255,8 +255,26 @@ extension RuntimeState {
   @discardableResult func evalLValue(_ lv: LValue, _ store : ((Cell) throws ->Cell)? = nil ) async throws -> Cell { // value, fldnum
     switch lv {
       case .variable(let name):
+        // A name used as an array anywhere in the program (see staticArrayVariableNames())
+        // can't also be assigned as a plain scalar — matches awk's own type checking,
+        // e.g. `j = 4` when `j` is later used via `"x" in j` fails at the assignment,
+        // not the `in` check. Function-local parameters are exempt (they're independent
+        // of any global of the same name), and this must not reject the array-by-reference
+        // write-back in execUserCall (which legitimately re-stores a Dictionary here) —
+        // only an actual scalar result is disallowed.
+        if let store, declaredArrayNames.contains(name),
+           !(callStack.last?.paramNames.contains(name) ?? false) {
+          let checkedStore: (Cell) throws -> Cell = { cell in
+            let result = try store(cell)
+            if !(result is Dictionary) {
+              throw AWKRuntimeError("can't assign to \(name); it's an array name.")
+            }
+            return result
+          }
+          return try resolveVar(name, checkedStore)
+        }
         return try resolveVar(name, store)
-        
+
       case .field(let e):
         // Field lvalue — we can't return a reference to an element of env.fields.
         // Instead, return a proxy: a cell whose value changes are applied via setField.

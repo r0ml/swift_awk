@@ -172,7 +172,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
       // Step 2: Parse
       let ast = try AWKParser.parse(tokens)      // → AWKProgram
-
+      await runtime.setDeclaredArrayNames(ast.staticArrayVariableNames())
 
       setlocale(LC_NUMERIC, ""); /* back to whatever it is locally */
 

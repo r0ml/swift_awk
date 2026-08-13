@@ -24,11 +24,22 @@ extension awkTest {
       }
       let inp = try inFile("beebe/\(s)".replacing(".awk", with: ".in"))
       let prog = try inFile("beebe/\(s)")
-      let outp = try fileContents("beebe/\(s)".replacing(".awk", with: ".ok"))
+      let outp = try? fileContents("beebe/\(s)".replacing(".awk", with: ".ok"))
+      let err = try? fileContents("beebe/\(s)".replacing(".awk", with: ".err"))
       if inp.exists {
-        try await run(withStdin: inp, output: outp, error: "", args: "-f", prog)
+        if let err {
+          try await run(withStdin: inp, status: 2, error: Regex<Substring>(verbatim: String(err.dropLast())), args: "-f", prog)
+        }
+        if let outp {
+          try await run(withStdin: inp, output: outp, error: "", args: "-f", prog)
+        }
       } else {
-        try await run(output: outp, error: "", args: "-f", prog)
+        if let err {
+          try await run(status: 2, error: Regex<Substring>(verbatim: String(err.dropLast())), args: "-f", prog)
+        }
+        if let outp {
+          try await run(output: outp, error: "", args: "-f", prog)
+        }
       }
     }
   }
