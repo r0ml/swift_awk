@@ -612,7 +612,7 @@ extension RuntimeState {
 
           let p = DarwinProcess()
           if let r = try? await p.run("/bin/sh", args: "-c", cmd, output: (nil, nil)) {
-            result = Int(r.code)
+            result = Int(awkSystemStatus(r.rawStatus))
           }
 
         return ValueCell(number: Double(result))
@@ -832,6 +832,21 @@ extension RuntimeState {
     try await storeVar(arrName, Dictionary(dict: ee))
     return ValueCell(number: parts.count)
   }
+
+
+  /// The exit status using the convention awk's `system()` uses: `WEXITSTATUS()` for a
+  /// normal exit, or `WTERMSIG() + 256` for death by signal (plus another `256` if the
+  /// process also dumped core). This differs from `code`'s shell `128 + signal` convention.
+  public func awkSystemStatus(_ rawStatus : Int32) -> Int32 {
+    if WIFEXITED(rawStatus) { return WEXITSTATUS(rawStatus) }
+    if WIFSIGNALED(rawStatus) {
+      var s = WTERMSIG(rawStatus) + 256
+      if rawStatus & 0o200 != 0 { s += 256 }  // WCOREDUMP
+      return s
+    }
+    return rawStatus
+  }
+
 }
 
 func substringsBetweenMatches(

@@ -51,8 +51,14 @@ actor RuntimeState {
   var fldtab : [String] = [] {
     didSet {
       donerec = false
+      savedOFS = OFS
     }
   }
+
+  // The OFS in effect when $0 was last invalidated by a field assignment. Real awk
+  // rebuilds $0 lazily (only when it's next needed) but uses the OFS that was current
+  // at invalidation time, not whatever OFS happens to be current when $0 is read.
+  var savedOFS : String = " "
 
   var record : String?  /* points to $0 */ {
     didSet {
@@ -248,7 +254,7 @@ extension RuntimeState {
   // C: recbld() — lib.c
   func ensureRecord() {
     // donefld is reset by the record assignment -- but since it was built from the fields, they are done
-    if !donerec { record = fldtab.joined(separator: OFS); donefld=true }
+    if !donerec { record = fldtab.joined(separator: savedOFS); donefld=true }
   }
   
   
