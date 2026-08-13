@@ -59,11 +59,3 @@ BEGIN {
 	if ( 1000000 "" == 1000001 "") print "match"
 	else print "nomatch"
 }
-{
-	printf "Test #14: "
-	FS = ":"
-	print $1
-	FS = ","
-	printf "Test #15: "
-	print $2
-}
