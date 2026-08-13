@@ -739,16 +739,24 @@ extension RuntimeState {
             count = 1
           }
         case .gsub:
+          // Matches AWK's gsub semantics for nullable patterns (e.g. /a*/): a zero-length
+          // match sitting exactly at the end of the previous applied match is suppressed
+          // (its character is left for the next match's gap-copy, or the trailing copy,
+          // to carry through untouched) rather than triggering another replacement, which
+          // is what real awk does but Swift's matches(of:) does not. Matches are computed
+          // once over the whole string here (rather than via repeated substring searches)
+          // so that anchors like ^ keep referring to the true start of the string.
           result = ""
           var lastEnd = str.startIndex
-          for m in str[range].matches(of: re) {
-//            guard let r = Range(m.range, in: str) else { continue }
+          var lastMatchEnd: String.Index? = nil
+          for m in str.matches(of: re) {
             let r = m.range
+            if r.isEmpty && lastMatchEnd == r.lowerBound { continue }
             result += str[lastEnd..<r.lowerBound]
-            let matched = str[r]
-            result += AWKRuntime.applyReplacement(repl, matched: matched)
-            lastEnd = r.upperBound
+            result += AWKRuntime.applyReplacement(repl, matched: str[r])
             count += 1
+            lastEnd = r.upperBound
+            lastMatchEnd = r.upperBound
           }
           result += str[lastEnd...]
       }

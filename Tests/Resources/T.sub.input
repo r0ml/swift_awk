@@ -1,61 +1,3 @@
-echo T.sub: tests of sub and gsub code
-
-# input lines are of form
-#	pattern  replacement  input-string  sub-output  gsub-output
-
-awk '
-BEGIN {
-	FS = "\t"
-	awk = "../a.out"
-}
-NF == 0		{ next }
-$1 ~ /^#/	{ next }
-
-$1 != "" {	# new pattern
-	pat = $1
-}
-$2 != "" {	# new replacement
-	repl = $2
-}
-$3 != "" {	# new input string
-	str = $3
-}
-$4 != "" {	# new sub output
-	subout = $4
-}
-$5 != "" {	# new gsub output
-	gsubout = $5
-}
-NF < 5 {	# weird input line
-	printf("weird test spec `%s` ignored\n", $0) | "cat 1>&2"
-	next
-}
-{		# "" => explicitly empty
-	# printf(" %3d:   %s %s %s %s %s:\n", NR, pat, repl, str, subout, gsubout)
-	if (pat == "\"\"") pat = ""
-	if (repl == "\"\"") repl = ""
-	if (str == "\"\"") str = ""
-	if (subout == "\"\"") subout = ""
-	if (gsubout == "\"\"") gsubout = ""
-}
-{		# generate a test
-	nt++
-	gsub(/\\/, "&&", repl)	# in case of \ enclosed
-	test = sprintf("echo '"'"'%s'"'"' | %s '"'\n"'", str, awk) \
-	  sprintf("{ temp = $0; sub(/%s/, \"%s\", temp)\n", pat, repl) \
-	  sprintf("  if (temp != \"%s\") print \" sub %d fails:\", temp, \"should be %s in %s\"\n",
-		subout, nt, subout, (pat " " repl " " str " " subout)) \
-	  sprintf("  gsub(/%s/, \"%s\")\n", pat, repl) \
-	  sprintf("  if ($0 != \"%s\") print \"gsub %d fails:\", $0, \"should be %s in %s\"\n}",
-		gsubout, nt, gsubout, (pat " " repl " " str " " gsubout)) \
-	  "'" '"'"
-	# if (nt >= 55) print "test is: " test
-	system(test)
-	# system("bprint -c ../a.out")
-}
-END { print nt, "tests" }
-
-' <<\!!!!
 a	x	aaa	xaa	xxx
 		axa	xxa	xxx
 		bbb	bbb	bbb
@@ -312,4 +254,3 @@ x[0-9]+y	Q	xy	xy	xy	no change
 # 		4
 # 		7
 # 		8
-!!!!
