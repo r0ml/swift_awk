@@ -795,16 +795,21 @@ extension RuntimeState {
     let ee = AwkDictionary()
 
     let fs: String
+    let isRegexLiteral: Bool
     if let sepExpr = sep {
-      if case .regexMatch(let pat) = sepExpr { fs = pat }
-      else { fs = try await eval(sepExpr).asString() }
+      if case .regexMatch(let pat) = sepExpr { fs = pat; isRegexLiteral = true }
+      else { fs = try await eval(sepExpr).asString(); isRegexLiteral = false }
     } else {
       fs = FS
+      isRegexLiteral = false
     }
-    
+
     let parts: [String]
     if s.isEmpty { parts = [] } else {
-      if fs == " " {
+      // Only the bare string " " gets awk's special "collapse runs of whitespace" treatment.
+      // A regex literal that happens to match a single space (e.g. / /) must split on each
+      // literal space character individually, producing empty fields between consecutive ones.
+      if fs == " " && !isRegexLiteral {
         parts = s.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
       } else if fs.count == 1 && fs != "" {
         let sep = Character(fs)
