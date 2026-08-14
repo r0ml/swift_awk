@@ -255,6 +255,13 @@ extension RuntimeState {
   @discardableResult func evalLValue(_ lv: LValue, _ store : ((Cell) throws ->Cell)? = nil ) async throws -> Cell { // value, fldnum
     switch lv {
       case .variable(let name):
+        // Functions and variables share one namespace in awk — a declared function's own
+        // name can never be assigned as a plain variable, even from within its own body
+        // (e.g. `function ShowMe() { ShowMe = 1 }`). Function-local parameters are exempt.
+        if store != nil, functions[name] != nil,
+           !(callStack.last?.paramNames.contains(name) ?? false) {
+          throw AWKRuntimeError("can't assign to \(name); it's a function.")
+        }
         // A name used as an array anywhere in the program (see staticArrayVariableNames())
         // can't also be assigned as a plain scalar — matches awk's own type checking,
         // e.g. `j = 4` when `j` is later used via `"x" in j` fails at the assignment,
@@ -264,6 +271,22 @@ extension RuntimeState {
         // only an actual scalar result is disallowed.
         if let store, declaredArrayNames.contains(name),
            !(callStack.last?.paramNames.contains(name) ?? false) {
+          let checkedStore: (Cell) throws -> Cell = { cell in
+            let result = try store(cell)
+            if !(result is Dictionary) {
+              throw AWKRuntimeError("can't assign to \(name); it's an array name.")
+            }
+            return result
+          }
+          return try resolveVar(name, checkedStore)
+        }
+        // Dynamic complement to the static check above: a function parameter currently
+        // bound to an array (Dictionary) — because an array was passed into this call,
+        // possibly forwarded through a chain of pass-through calls — can't be overwritten
+        // with a scalar either, even though pure textual scanning can't see that the
+        // parameter aliases an array (that only becomes known at this specific call site).
+        if let store, let frame = callStack.last, let i = frame.paramNames.firstIndex(of: name),
+           frame.cells[i] is Dictionary {
           let checkedStore: (Cell) throws -> Cell = { cell in
             let result = try store(cell)
             if !(result is Dictionary) {
@@ -349,6 +372,11 @@ extension RuntimeState {
   
   // C: array() — run.c
   func resolveElement(name: String, keys: [Expression], _ store: ((Cell) throws->Cell)?) async throws -> Cell {
+    // Functions and variables/arrays share one namespace in awk — a declared function name
+    // can never be subscripted as an array (e.g. `foo[c]` when `foo` is `function foo(...)`).
+    guard functions[name] == nil else {
+      throw AWKRuntimeError("\(name) is a function, not an array")
+    }
     var parts : [String] = []
     for k in keys { try await parts.append(eval(k).asString()) }
     let key = subscriptKey(parts)
@@ -521,7 +549,15 @@ extension RuntimeState {
   func execDelete(_ lv: LValue) async throws {
     switch lv {
       case .variable(let name):
-        let _ = try resolveVar(name) { _ in EmptyCell() }
+        // Whole-array delete must clear the existing Dictionary's keys in place rather than
+        // replacing the cell with a fresh EmptyCell: if this array was passed into a function
+        // by reference, the caller's variable shares the same underlying AwkDictionary, and
+        // only an in-place clear (not a rebind) is visible on the caller's side too.
+        let _ = try resolveVar(name) { ee in
+          guard var keyed = ee as? Keyed else { return EmptyCell() }
+          for k in keyed.keys { keyed[k] = nil }
+          return ee
+        }
 
       case .element(let name, let keys):
         var parts = [String]()

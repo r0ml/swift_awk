@@ -10,9 +10,17 @@ public class AwkDictionary {
       return theDict[key]
     }
     set {
-      let k = theDict[key] == nil
-      theDict[key] = newValue
-      if k { theKeys.append(key) }
+      if let newValue {
+        let isNew = theDict[key] == nil
+        theDict[key] = newValue
+        if isNew { theKeys.append(key) }
+      } else if theDict[key] != nil {
+        // Deleting a key must also drop it from theKeys, or re-inserting the same key
+        // later (e.g. repopulating an array after `delete arr`) leaves a stale duplicate
+        // entry, causing for-in to visit that key twice.
+        theDict[key] = nil
+        theKeys.removeAll { $0 == key }
+      }
     }
   }
 

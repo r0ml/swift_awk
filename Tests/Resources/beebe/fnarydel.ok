@@ -1,4 +1,6 @@
 first loop
+2
+3
 4
 5
 6
@@ -6,10 +8,10 @@ first loop
 8
 9
 1
-2
-3
 second loop
 third loop
+2
+3
 4
 5
 6
@@ -17,8 +19,6 @@ third loop
 8
 9
 1
-2
-3
 call func
 fourth loop
 You should just see: 4 4
