@@ -437,7 +437,7 @@ extension RuntimeState {
         case "G": result += cFormat( spec + "G", arg.getNumber())
         case "a": result += cFormat( spec + "a", arg.getNumber())
         case "A": result += cFormat( spec + "A", arg.getNumber())
-        case "s": result += cFormat( spec + "s", arg.asString(fmt: OFMT))
+        case "s": result += cFormat( spec + "s", arg.asString(fmt: CONVFMT))
         case "c":
           if arg.isNumber && arg.getNumber().rounded() == arg.getNumber() {
             let nn = UInt(arg.getNumber()) & 0xFF
