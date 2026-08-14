@@ -254,7 +254,7 @@ extension RuntimeState {
       case .getlinePipe(let lv, let cmd):
         let cmdStr = try await eval(cmd).asString()
         let file = try await fileFor(name: cmdStr, mode: .inputPipe)
-        return try await readLineInto(lv: lv, from: file, updates0: false)
+        return try await readLineInto(lv: lv, from: file, updates0: true)
 
         // --- Arithmetic ---
       case .concat(let a, let b):
