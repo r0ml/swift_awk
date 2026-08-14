@@ -491,12 +491,12 @@ extension RuntimeState {
   // C: fldbld() body — lib.c
   private func splitRecord() {
     let s = record ?? ""
-    // POSIX: in paragraph mode (RS == ""), newline is always an additional field
-    // separator, regardless of what FS is set to.
+    // POSIX: with the default FS (a single space), newline always counts as whitespace for
+    // splitting — unconditionally, regardless of RS. For any *other* FS, newline only becomes
+    // an additional separator in paragraph mode (RS == "").
     let alsoSplitOnNewline = RS.isEmpty
     if FS == " " {
-      let charset: CharacterSet = alsoSplitOnNewline ? .whitespacesAndNewlines : .whitespaces
-      fldtab = s.components(separatedBy: charset).filter { !$0.isEmpty }
+      fldtab = s.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
     } else if FS.count == 1 {
       let sep = Character(FS)
       if s.isEmpty { fldtab = [] }

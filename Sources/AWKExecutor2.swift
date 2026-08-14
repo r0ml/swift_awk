@@ -419,10 +419,25 @@ extension RuntimeState {
       while i < fmt.endIndex && "hjLlqtz".contains(fmt[i]) { fmt.formIndex(after: &i) }
       guard i < fmt.endIndex else { break }
       let type = fmt[i]; fmt.formIndex(after: &i)
-      
+
+      // C: real awk treats a conversion that never reaches a control letter as fatal only
+      // when it's cut off by whitespace/control characters (e.g. "%3\n" — clearly truncated,
+      // "weird printf conversion" in run.c). When it's cut off by an ordinary printable
+      // character instead (as happens with dynamically-built format strings, e.g. hsprint.awk
+      // embedding a label like "%0|" where "|" was never meant as a conversion), real awk
+      // just passes the whole thing through as literal text without consuming an argument.
+      guard "diouxXeEfgGaAsc".contains(type) else {
+        let isControlChar = type.asciiValue.map { $0 < 0x20 || $0 == 0x7f } ?? false
+        guard !isControlChar else {
+          throw AWKRuntimeError("weird printf conversion %\(spec.dropFirst())\(type)")
+        }
+        result += "%\(spec.dropFirst())\(type)"
+        continue
+      }
+
       let arg: Cell = argIdx < args.count ? (try await eval(args[argIdx])) : EmptyCell()
       argIdx += 1
-      
+
       switch type {
         case "d", "i":
           result += cFormat( spec + "d", Int64(bitPattern: UInt64(arg.getNumber())))
