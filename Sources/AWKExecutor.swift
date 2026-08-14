@@ -706,9 +706,12 @@ extension RuntimeState {
   func readLineInto(lv: LValue?, from file: AWKFile, updates0: Bool) async throws -> Cell {
     guard let line = try file.readRecord(rs: RS) else { return ValueCell(number: 0) }
     if let lv {
-      return try await evalLValue(lv) { _ in
-        return ValueCell(string: line)
-      }
+      // getline's own result must always be the numeric success indicator (1), never the
+      // assigned value itself — returning the target's new Cell here would make `> 0`
+      // comparisons coerce the read line to a number/string instead of testing success,
+      // e.g. a line starting with a space would compare as less than "0" and wrongly look
+      // like failure, ending the read loop after just one (or zero) lines.
+      _ = try await evalLValue(lv) { _ in ValueCell(string: line) }
     } else if updates0 {
       record = line
     }
