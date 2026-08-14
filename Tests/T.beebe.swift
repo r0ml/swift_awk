@@ -46,10 +46,10 @@ extension awkTest {
         }
       } else {
         if let err {
-          try await run(status: 2, error: Regex<Substring>(verbatim: String(err.dropLast())), args: "-f", prog)
+          try await run(status: 2, error: Regex<Substring>(verbatim: String(err.dropLast())), args: "-f", prog, cd: indir)
         }
         if let outp {
-          try await run(output: outp, error: "", args: "-f", prog)
+          try await run(output: outp, error: "", args: "-f", prog, cd: indir)
         }
       }
     }

@@ -322,7 +322,11 @@ extension RuntimeState {
         let pipe = try FileDescriptor.pipe()
 
         do {
-          _ = try await proc.launch("/bin/sh", args: "-c", name, output: (pipe.writeEnd, pipe.writeEnd))
+          // Only stdout feeds the pipe getline reads from; stderr must inherit our own
+          // stderr (matching real awk) rather than being merged into the pipe's data —
+          // otherwise error output from the command (e.g. a missing file) gets read back
+          // as if it were legitimate record data.
+          _ = try await proc.launch("/bin/sh", args: "-c", name, output: (pipe.writeEnd, .standardError))
         } catch(let e) {
           throw AWKRuntimeError("cannot run '\(name)': \(e)")
         }
