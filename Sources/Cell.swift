@@ -81,11 +81,17 @@ class ValueCell : Cell {
   var nval : Double?
   var sval : String?
 
+  // Sticky flag: this cell's string has been confirmed, in full (per AWKRuntime.isNumber),
+  // to be a valid number — as opposed to merely having a numeric *prefix* strtod could use
+  // for arithmetic coercion (e.g. "+2a" coerces to 2 for `+`, but is never comparison-numeric).
+  // Real awk itself only "flags" a string cell as numeric once something actually coerces
+  // it to a number and the whole string was consumed; a bare string constant that merely
+  // looks numeric compares as a string until then. See POSIX/awk "numeric string" semantics.
+  private var isNumeric = false
+
   var isNumber : Bool {
-    if nval != nil { return true }
-    // FIXME: does this work?
-//    if let sval, nil != Double(sval.trimmed()) { return true }
-    return false
+    if sval == nil { return nval != nil }
+    return isNumeric
   }
 
   init(field: String) {
@@ -96,6 +102,7 @@ class ValueCell : Cell {
         let r = strtod(c, &k)
         if let k, strlen(k) == 0 { nval = r }
       }
+      if AWKRuntime.isNumber(field) { isNumeric = true }
     }
     sval = field
 
@@ -104,7 +111,6 @@ class ValueCell : Cell {
   func asNumber() -> Double? {
     if let nval { return nval }
     if let sval {
-
       // FIXME: do this business upon creation of the cell
       if let n = (sval.withCString { c in
         let cc = UnsafeMutablePointer(mutating: c)
@@ -112,10 +118,10 @@ class ValueCell : Cell {
         let r = strtod(c, &k)
         return k == cc ? nil : r
       })
-//      if let n = Double(sval.trimmed())
       {
         // if this were mutating ...
         nval = n
+        if AWKRuntime.isNumber(sval) { isNumeric = true }
         return n
       }
     }

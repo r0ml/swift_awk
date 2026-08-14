@@ -23,7 +23,7 @@ BEGIN	{
 			# The command i typed on the shell was "gawk -f <this_prog> -"
 
 			#com = "cal 01 1997"
-			com = ("cat " SRCDIR "/pipeio2.in")
+			com = ("cat pipeio2.in")
 
 			while ((com | getline fnam) > 0) {
 
