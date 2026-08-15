@@ -728,8 +728,12 @@ extension RuntimeState {
       return ValueCell(number: 0)
     }
     if let lv {
+      // Like a field, a getline-assigned variable is a "numeric string" (strnum) if it
+      // looks like a number — ValueCell(field:) sets that sticky flag; a plain
+      // ValueCell(string:) would not, making later numeric comparisons wrongly fall back
+      // to string comparison for data that's genuinely numeric input.
       let _ = try await evalLValue(lv) {_ in
-        return ValueCell(string: line)
+        return ValueCell(field: line)
       }
     } else {
       NR += 1; FNR += 1
@@ -747,7 +751,9 @@ extension RuntimeState {
       // comparisons coerce the read line to a number/string instead of testing success,
       // e.g. a line starting with a space would compare as less than "0" and wrongly look
       // like failure, ending the read loop after just one (or zero) lines.
-      _ = try await evalLValue(lv) { _ in ValueCell(string: line) }
+      // ValueCell(field:) (not ValueCell(string:)) so the read line gets numeric-string
+      // (strnum) treatment when it looks like a number, matching real awk's getline.
+      _ = try await evalLValue(lv) { _ in ValueCell(field: line) }
     } else if updates0 {
       record = line
     }

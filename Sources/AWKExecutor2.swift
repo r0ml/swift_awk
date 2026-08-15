@@ -404,14 +404,16 @@ extension RuntimeState {
       }
       // width (* or digits)
       if i < fmt.endIndex && fmt[i] == "*" {
-        if argIdx < args.count { spec += String(Int(try await eval(args[argIdx]).getNumber())); argIdx += 1 }
+        guard argIdx < args.count else { throw AWKRuntimeError("not enough args in printf") }
+        spec += String(Int(try await eval(args[argIdx]).getNumber())); argIdx += 1
         fmt.formIndex(after: &i)
       } else { while i < fmt.endIndex && fmt[i] >= "0" && fmt[i] <= "9" { spec.append(fmt[i]); fmt.formIndex(after: &i) } }
       // precision
       if i < fmt.endIndex && fmt[i] == "." {
         spec.append("."); fmt.formIndex(after: &i)
         if i < fmt.endIndex && fmt[i] == "*" {
-          if argIdx < args.count { spec += String(Int(try await eval(args[argIdx]).getNumber())); argIdx += 1 }
+          guard argIdx < args.count else { throw AWKRuntimeError("not enough args in printf") }
+          spec += String(Int(try await eval(args[argIdx]).getNumber())); argIdx += 1
           fmt.formIndex(after: &i)
         } else { while i < fmt.endIndex && fmt[i] >= "0" && fmt[i] <= "9" { spec.append(fmt[i]); fmt.formIndex(after: &i) } }
       }
