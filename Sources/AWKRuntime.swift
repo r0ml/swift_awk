@@ -92,7 +92,18 @@ enum AWKRuntime {
   // Returns true when the string is entirely numeric (per POSIX is_number).
   // C: is_number() — lib.c
   static func isNumber(_ s: String) -> Bool {
-    var s = s.trimmingCharacters(in: .whitespaces)
+    let trimmed = s.trimmingCharacters(in: .whitespaces)
+    guard isNumericSyntax(trimmed) else { return false }
+    // one-true-awk's is_number() also rejects a syntactically valid number
+    // whose magnitude overflows strtod's range (r == HUGE_VAL / errno ==
+    // ERANGE) — e.g. "2e1000" is *not* a number, so it stays a plain string
+    // and compares lexically rather than numerically.
+    if let d = Double(trimmed), d.isInfinite { return false }
+    return true
+  }
+
+  private static func isNumericSyntax(_ trimmed: String) -> Bool {
+    var s = trimmed
     if s.isEmpty { return false }
     if s.first == "+" || s.first == "-" { s.removeFirst() }
     var hasDot = false, hasDigit = false

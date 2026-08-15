@@ -430,10 +430,7 @@ extension RuntimeState {
   
   // C: fieldadr() — lib.c
   func setFieldCell(_ n: Int, _ c : Cell) {
-    // do I need to do "ensureFields" ?
-    ensureFields()
-    if n == 0 { ensureRecord(); record = c.asString() ; return}
-    fldtab[n-1]=c.asString()
+    setField(n, c.asString())
   }
 
   // MARK: - Assignment
@@ -961,10 +958,31 @@ func fixre(_ s: String) -> String {
     while i < s.endIndex {
         let ch = s[i]
 
-        // Escape sequence: pass both characters through unchanged.
+        // Escape sequence.
         if ch == "\\" {
-            result.append(ch)
             let ni = s.index(after: i)
+            // Octal escape (\d, \dd, \ddd, 1-3 octal digits) — matches
+            // one-true-awk's quoted() in b.c, which treats *any* leading
+            // octal digit (0-7) this way. Swift's Regex only recognizes
+            // \0dd as octal and treats \1-\9 as backreferences, so \141
+            // (='a') and \60 (='0') would otherwise fail to match.
+            if ni < s.endIndex, let d0 = s[ni].wholeNumberValue, (0...7).contains(d0) {
+                var n = d0
+                var j = s.index(after: ni)
+                var digits = 1
+                while digits < 3, j < s.endIndex, let d = s[j].wholeNumberValue, (0...7).contains(d) {
+                    n = n * 8 + d
+                    j = s.index(after: j)
+                    digits += 1
+                }
+                if let scalar = Unicode.Scalar(n) {
+                    result.append(regexEscapeLiteral(Character(scalar)))
+                }
+                i = j
+                continue
+            }
+            // Otherwise pass both characters through unchanged.
+            result.append(ch)
             if ni < s.endIndex {
                 result.append(s[ni])
                 i = s.index(after: ni)
@@ -1023,6 +1041,12 @@ func fixre(_ s: String) -> String {
     }
 
     return result
+}
+
+// Escapes a decoded literal character (e.g. from an octal escape) so it's
+// inserted into the regex pattern as itself, not as a metacharacter.
+func regexEscapeLiteral(_ c: Character) -> String {
+    ".^$|()[]{}*+?\\".contains(c) ? "\\\(c)" : String(c)
 }
 
 func cleanAWKCharacterClass(_ s: String) -> String {

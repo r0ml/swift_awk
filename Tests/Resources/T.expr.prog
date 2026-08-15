@@ -1,0 +1,48 @@
+BEGIN {
+  FS = ";"
+  awk = "awk"
+}
+NF == 0 || $1 ~ /^#/ {
+  next
+}
+$1 ~ /try/ {  # new test
+  nt++
+  sub(/try /, "")
+  prog = $0
+  # printf("%3d  %s\n", nt, prog)
+  prog = sprintf("%s -F \",\" '%s'", awk, prog)
+  # print "prog is", prog
+  nt2 = 0
+  while (getline > 0) {
+    if (NF == 0)  # blank line terminates a sequence
+      break
+    input = $1
+    output = $2
+
+    # print "input: " input "; output: " output
+
+    for (i = 2; i < NF; i++) # input data
+      input = input " " $i
+
+    test = sprintf("echo '%s' | %s >foo1; ",
+      input, prog)
+      if (output == "\"\"") {
+        output = "cat /dev/null >foo2; "
+      } else {
+        output = sprintf("echo '%s' >foo2; ", output)
+        }
+#    gsub(/\t/, "\\t", output)
+#    gsub(/\n/, "\\n", output)
+
+    run = sprintf("if ! cmp -s foo1 foo2; then echo test %d.%d failed; echo '(was: \\c' ; cat foo1; echo ')  (should be: \\c' ; cat foo2; echo ')'; fi ",
+      nt, ++nt2)
+   # print  "input is", input
+   # print  "test is", test
+   # print  "output is", output
+   # print  "run is", run
+
+    system(test output run)
+  }
+  tt += nt2
+}
+END { print tt, "tests" }

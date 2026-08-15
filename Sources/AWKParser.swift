@@ -532,8 +532,7 @@ private func var_() -> Parser<Expression> {
     Parser { stream in
         if stream.first == .dollar {
             stream = stream.dropFirst()
-            let inner = try parseExpr(&stream, minBP: BP.postfix + 1, getlinePipe: false)
-            return .field(inner)
+            return try parseDollarOperand(&stream, getlinePipe: false)
         }
         let base = try varname().parse(&stream)
         if stream.first == .lbracket {
@@ -548,6 +547,44 @@ private func var_() -> Parser<Expression> {
         }
         return base
     }
+}
+
+// Parses the operand of a '$' (the token has already been consumed) and
+// applies the one-true-awk grammar quirk around postfix ++/--.
+//
+// In awkgram.y, `var: INDIRECT term` sits alongside `term: var INCR | var DECR`.
+// For an array element (`varname '[' patlist ']'`), the yacc parser reduces
+// that array-element `var` and then faces a shift/reduce choice on a
+// following INCR/DECR: shift (attach to the array element, since `var INCR`
+// is available immediately) wins over reducing it up through `term` into the
+// pending `$`. That makes `$f[1]++` mean `$(f[1]++)` — the *subscript
+// variable* is incremented, not the field. Plain variables/NF and bare
+// field numbers (`$i++`, `$NF++`, `$1++`) don't hit that reduction point the
+// same way and keep the intuitive `($x)++` reading, and parenthesizing the
+// subscript expression (`$(arr[1])++`) also forces the plain reading since
+// parens close off the array element as its own `term` before `$` sees it —
+// so only a *literal* `$name[key,...]` gets the special treatment here.
+private func parseDollarOperand(_ stream: inout TokenStream, getlinePipe: Bool) throws -> Expression {
+    if case .variable(let name) = stream.first {
+        var probe = stream.dropFirst()
+        if probe.first == .lbracket {
+            stream = probe.dropFirst()
+            let keys = try sepBy1(lazy(pattern()), sep: comma_()).parse(&stream)
+            guard stream.first == .rbracket else { throw ParseError("Expected ']'") }
+            stream = stream.dropFirst()
+            if stream.first == .incrOp {
+                stream = stream.dropFirst()
+                return .field(.postIncrement(.element(name, keys)))
+            }
+            if stream.first == .decrOp {
+                stream = stream.dropFirst()
+                return .field(.postDecrement(.element(name, keys)))
+            }
+            return .field(.element(name, keys))
+        }
+    }
+    let inner = try parseExpr(&stream, minBP: BP.postfix + 1, getlinePipe: getlinePipe)
+    return .field(inner)
 }
 
 // MARK: - Expression parser (Pratt / top-down operator precedence)
@@ -599,7 +636,8 @@ private func printArgPattern() -> Parser<Expression> {
 private func parseExpr(_ stream: inout TokenStream, minBP: Int, getlinePipe: Bool, allowGT: Bool = true) throws -> Expression {
     var lhs = try parsePrefix(&stream, getlinePipe: getlinePipe)
     while true {
-        guard let lbp = infixBP(stream.first, getlinePipe: getlinePipe, allowGT: allowGT), lbp >= minBP else { break }
+        let lhsIsLValue = lhs.asLValue() != nil
+        guard let lbp = infixBP(stream.first, getlinePipe: getlinePipe, allowGT: allowGT, lhsIsLValue: lhsIsLValue), lbp >= minBP else { break }
         lhs = try parseInfix(&stream, lhs: lhs, lbp: lbp, getlinePipe: getlinePipe, allowGT: allowGT)
     }
     return lhs
@@ -607,7 +645,7 @@ private func parseExpr(_ stream: inout TokenStream, minBP: Int, getlinePipe: Boo
 
 /// Left binding power of the current token when used as an infix operator.
 /// Returns nil if the token is not an infix operator at the current context.
-private func infixBP(_ tok: AWKToken?, getlinePipe: Bool, allowGT: Bool = true) -> Int? {
+private func infixBP(_ tok: AWKToken?, getlinePipe: Bool, allowGT: Bool = true, lhsIsLValue: Bool = true) -> Int? {
     guard let tok else { return nil }
     switch tok {
     case .assignOp, .addEqOp, .subEqOp, .mulEqOp, .divEqOp, .modEqOp, .powEqOp:
@@ -633,7 +671,12 @@ private func infixBP(_ tok: AWKToken?, getlinePipe: Bool, allowGT: Bool = true) 
     case .powerOp:
         return BP.power
     case .incrOp, .decrOp:
-        return BP.postfix
+        // A trailing ++/-- is only a postfix operator on an assignable lhs
+        // (e.g. `i++`); otherwise (e.g. after another postfix already
+        // consumed the only valid target, as in `i++ ++j`) it can't apply
+        // again, so treat it like any other term-starting token and let it
+        // begin a new implicitly-concatenated term instead.
+        return lhsIsLValue ? BP.postfix : (canStartTerm(tok) ? BP.concat : nil)
     default:
         // Implicit concatenation: if this token can start a term, it "infix-concatenates"
         return canStartTerm(tok) ? BP.concat : nil
@@ -750,15 +793,16 @@ private func parseInfix(
         stream = stream.dropFirst()
         return .power(lhs, try parseExpr(&stream, minBP: BP.power - 1, getlinePipe: getlinePipe, allowGT: allowGT)) // right-assoc
 
-    // Postfix ++ / --
-    case .incrOp:
+    // Postfix ++ / --. infixBP only assigns this token BP.postfix when lhs is
+    // a valid lvalue; when lhs isn't one (e.g. the lhs in `i++ ++j`, after
+    // the first `++` already consumed `i` as its target), it's routed here
+    // with lbp == BP.concat instead, so fall through to implicit concat.
+    case .incrOp where lhs.asLValue() != nil:
         stream = stream.dropFirst()
-        guard let lv = lhs.asLValue() else { throw ParseError("'++' requires assignable operand") }
-        return .postIncrement(lv)
-    case .decrOp:
+        return .postIncrement(lhs.asLValue()!)
+    case .decrOp where lhs.asLValue() != nil:
         stream = stream.dropFirst()
-        guard let lv = lhs.asLValue() else { throw ParseError("'--' requires assignable operand") }
-        return .postDecrement(lv)
+        return .postDecrement(lhs.asLValue()!)
 
     default:
         // Implicit concatenation
@@ -806,11 +850,10 @@ private func parsePrefix(_ stream: inout TokenStream, getlinePipe: Bool) throws 
         stream = stream.dropFirst()
         return .userCall(name, args)
 
-    // Field access: $expr  — use postfix+1 so $a++ parses as ($a)++ not $(a++)
+    // Field access: $expr
     case .dollar:
         stream = stream.dropFirst()
-        let inner = try parseExpr(&stream, minBP: BP.postfix + 1, getlinePipe: getlinePipe)
-        return .field(inner)
+        return try parseDollarOperand(&stream, getlinePipe: getlinePipe)
 
     // Grouping or (plist) in array
     case .lparen:
