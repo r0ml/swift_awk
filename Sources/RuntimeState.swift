@@ -269,8 +269,8 @@ extension RuntimeState {
   
   // C: openfile() / redirect() — run.c
   func fileFor(name: String, mode: AWKFileMode) async throws -> AWKFile {
-    for f in openFiles where f.name == name &&
-    (f.mode == mode || (mode == .write && f.mode == .append) ||
+    for f in openFiles where (f.name == name &&
+    (f.mode == mode) || (mode == .write && f.mode == .append) ||
      (mode == .append && f.mode == .write)) { return f }
     
     let f: AWKFile
@@ -343,9 +343,12 @@ extension RuntimeState {
   }
   
   // C: fclose() / pclose() inline — run.c
-  func closeFile(name: String) async {
+  func closeFile(name: String) async -> Bool {
     if let i = openFiles.firstIndex(where: { $0.name == name }) {
       try? await openFiles[i].close(); openFiles.remove(at: i)
+      return true
+    } else {
+      return false
     }
   }
   

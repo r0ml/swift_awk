@@ -371,8 +371,8 @@ extension RuntimeState {
         
       case .closeExpr(let e):
         let name = try await eval(e).asString()
-        await closeFile(name: name)
-        return ValueCell(number: 0)
+        let j = await closeFile(name: name)
+        return ValueCell(number: j ? 0 : -1)
 
     }
   }

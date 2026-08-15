@@ -41,12 +41,13 @@ BEGIN {
       print rand() >"\(foo2)"
   }
   """
-      let k = try await DarwinProcess().run(cmd, args: prog, cd: tmpdir())
-      #expect(k.code == 0)
-      let o1 = try foo1.readAsString()
-      let o2 = try foo2.readAsString()
-      #expect(o1 == o2)
-      rm(foo1, foo2)
+      try await run(args: prog, cd: tmpdir()) { k in
+        #expect(k.code == 0)
+        let o1 = try foo1.readAsString()
+        let o2 = try foo2.readAsString()
+        #expect(o1 == o2)
+        rm(foo1, foo2)
+      }
     }
 
 

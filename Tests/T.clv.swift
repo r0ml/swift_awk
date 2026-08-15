@@ -221,12 +221,13 @@ NR==1 { print x }
     }
 
     @Test("twentysix") func twentysix() async throws {
-      let x = try await DarwinProcess().run(cmd, args: """
-        BEGIN { printf("a%c%c%ca\n", "\u{07}", "\r", "\u{c}") )
-        """)
-      let y = try await DarwinProcess().run(cmd, withStdin: "hello\n", args:
-                                              "{print x}", "x=a\\b\\r\\fz")
-      #expect(x.data == y.data)
+      try await run(args: "BEGIN { printf(\"a%c%c%cz\\n\", \"\\b\", \"\\r\", \"\\f\") }"
+      ) { xx in
+        try await run(withStdin: "hello\n", args:
+                                        "{print x}", "x=a\u{08}\r\u{0c}z") { yy in
+          #expect(xx.data == yy.data)
+        }
+      }
     }
 
 

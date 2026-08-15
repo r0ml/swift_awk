@@ -109,7 +109,7 @@ extension RuntimeState {
 
   // copied from sed (process.swift)
   /// advances to the next input file in the list
-  func mf_next_file() throws(CmdErr) -> SyncRecordReader.Iterator? {
+  func mf_next_file() throws -> SyncRecordReader.Iterator? {
     repeat {
       if self.fileNdx >= ARGV.count {
         if hadAnInputFile {
@@ -140,7 +140,10 @@ extension RuntimeState {
           FNR = 0
           return try FileDescriptor(forReading: fnam).syncBytes.records(rs: RS).makeIterator()
         } catch {
-          throw CmdErr(1, "\(fnam): \(error)")
+          // C: can't open file — main.c. A nonexistent/unreadable input filename is
+          // fatal, not skippable; the getrec loop must propagate this (not swallow it
+          // as ordinary EOF) so the process exits non-zero with this message.
+          throw AWKRuntimeError("can't open file \(fnam)")
         }
       }
     } while true
@@ -178,7 +181,7 @@ extension RuntimeState {
     // --- Per-record body ---
     if !program.rules.isEmpty || !program.endRules.isEmpty {
     getr:
-      while let rec = try? await awkGets() {
+      while let rec = try await awkGets() {
           NR += 1; FNR += 1
           record = rec
           
