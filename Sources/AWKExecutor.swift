@@ -255,6 +255,18 @@ extension RuntimeState {
   @discardableResult func evalLValue(_ lv: LValue, _ store : ((Cell) throws ->Cell)? = nil ) async throws -> Cell { // value, fldnum
     switch lv {
       case .variable(let name):
+        // C: setfval() on NF — lib.c rejects negative NF before setlastfld() ever touches
+        // fldtab, which otherwise underflows trying to build a negative-length array slice.
+        if name == "NF", let store {
+          let checkedStore: (Cell) throws -> Cell = { cell in
+            let result = try store(cell)
+            if result.getNumber() < 0 {
+              throw AWKRuntimeError("cannot set NF to a negative value")
+            }
+            return result
+          }
+          return try resolveVar(name, checkedStore)
+        }
         // Functions and variables share one namespace in awk — a declared function's own
         // name can never be assigned as a plain variable, even from within its own body
         // (e.g. `function ShowMe() { ShowMe = 1 }`). Function-local parameters are exempt.
@@ -377,9 +389,7 @@ extension RuntimeState {
     guard functions[name] == nil else {
       throw AWKRuntimeError("\(name) is a function, not an array")
     }
-    var parts : [String] = []
-    for k in keys { try await parts.append(eval(k).asString()) }
-    let key = subscriptKey(parts)
+    let key = try await buildSubscriptKey(keys)
     var elres : Cell = EmptyCell()
     let _ = try resolveVar(name) { arr in
       if arr is Keyed {
@@ -560,9 +570,7 @@ extension RuntimeState {
         }
 
       case .element(let name, let keys):
-        var parts = [String]()
-        for k in keys { parts.append(try await eval(k).asString()) }
-        let key = subscriptKey(parts)
+        let key = try await buildSubscriptKey(keys)
         let _ = try resolveVar(name) {ee in
           if ee is Keyed {
             var aa = ee as! Keyed

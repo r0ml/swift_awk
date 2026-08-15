@@ -131,7 +131,7 @@ struct AWKLexer {
           else if peek() == "\r\n" { eat(); eat() }
           else {
             eat()
-            throw LexError("bare '\\' at line \(line)")
+            throw LexError("syntax error near bare '\\' at line \(line)")
           }
           
         case "\"":

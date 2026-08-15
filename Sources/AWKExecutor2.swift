@@ -228,12 +228,7 @@ extension RuntimeState {
         }
 
       case .inArrayTuple(let exprs, let arrName):
-        var parts = [String]()
-        for x in exprs {
-          parts.append(try await eval(x).asString())
-        }
-
-        let key = subscriptKey(parts)
+        let key = try await buildSubscriptKey(exprs)
         let arr = try resolveVar(arrName, nil)
         if arr is Keyed {
           let k = (arr as! Keyed)[key]

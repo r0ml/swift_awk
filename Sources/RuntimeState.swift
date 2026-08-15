@@ -368,6 +368,20 @@ extension RuntimeState {
   func subscriptKey(_ exprs: [String]) -> String {
     exprs.joined(separator: SUBSEP)
   }
+
+  // C: array() — run.c. Subscripts are joined left-to-right, with each separator
+  // snapshotted from SUBSEP *between* evaluating neighboring subscript expressions —
+  // so an assignment to SUBSEP inside one subscript expression (e.g. `a[(SUBSEP=x), y]`)
+  // takes effect for the separator that follows it, not for separators before it or a
+  // final SUBSEP value taken after every subscript has already run.
+  func buildSubscriptKey(_ keys: [Expression]) async throws -> String {
+    var key = ""
+    for (i, k) in keys.enumerated() {
+      if i > 0 { key += SUBSEP }
+      key += try await eval(k).asString()
+    }
+    return key
+  }
   
   
   func savefs() {
