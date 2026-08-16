@@ -271,12 +271,8 @@ extension RuntimeState {
           return try resolveVar(name, checkedStore)
         }
         // Functions and variables share one namespace in awk — a declared function's own
-        // name can never be assigned as a plain variable, even from within its own body
-        // (e.g. `function ShowMe() { ShowMe = 1 }`). Function-local parameters are exempt.
-        if store != nil, functions[name] != nil,
-           !(callStack.last?.paramNames.contains(name) ?? false) {
-          throw AWKRuntimeError("can't assign to \(name); it's a function.")
-        }
+        // name can never be read or assigned as a plain variable (checked centrally in
+        // resolveVar, since plain reads reach it directly without going through evalLValue).
         // A name used as an array anywhere in the program (see staticArrayVariableNames())
         // can't also be assigned as a plain scalar — matches awk's own type checking,
         // e.g. `j = 4` when `j` is later used via `"x" in j` fails at the assignment,
@@ -363,6 +359,19 @@ extension RuntimeState {
 
   // C: setsymtab() + lookup() — tran.c
   func resolveVar(_ name: String, _ store : ((Cell) throws ->Cell)? ) throws -> Cell {
+    // Functions and variables share one namespace in awk — a declared function's own
+    // name can never be read or assigned as a plain variable, even from within its own
+    // body (e.g. `function ShowMe() { ShowMe = 1 }`, or `dummy (1)` where the missing
+    // call-parenthesis whitespace makes `dummy` a bareword variable reference rather
+    // than a call). Function-local parameters are exempt.
+    if functions[name] != nil,
+       !(callStack.last?.paramNames.contains(name) ?? false) {
+      if store != nil {
+        throw AWKRuntimeError("can't assign to \(name); it's a function.")
+      } else {
+        throw AWKRuntimeError("can't read value of \(name); it's a function.")
+      }
+    }
     // Check built-in variables first
     // Check current call frame
     if var frame = callStack.last {
@@ -656,9 +665,7 @@ extension RuntimeState {
         return ValueCell(number: exp(try await eval(args[0]).getNumber()))
 
       case .log:
-        let v = try await eval(args[0]).getNumber()
-        if v <= 0 { throw AWKRuntimeError("log: argument must be positive") }
-        return ValueCell(number: log(v))
+        return ValueCell(number: log(try await eval(args[0]).getNumber()))
         
       case .int_:
         var intPart = 0.0; modf(try await eval(args[0]).getNumber(), &intPart)

@@ -253,6 +253,9 @@ extension RuntimeState {
     if n < fldtab.count { fldtab = Array(fldtab.prefix(n)) }
     while fldtab.count < n { fldtab.append("") }
     NF = Double(n)
+    // Assigning to NF always forces $0 to be rebuilt with the OFS in effect now, even
+    // when n equals the current field count (so fldtab's didSet never fires to refresh it).
+    savedOFS = OFS
     donerec = false
   }
   
