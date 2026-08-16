@@ -5,7 +5,30 @@
 // Define grammar rules by composing Parser<T> values with combinators,
 // then call parser.run(on:) to parse a token sequence.
 
-typealias TokenStream = ArraySlice<AWKToken>
+/// The parsing cursor: a slice of tokens paired with each token's source line number,
+/// so statements can be tagged with their originating line for runtime error reporting.
+struct TokenStream {
+    private var tokens: ArraySlice<AWKToken>
+    private var lines: ArraySlice<Int>
+
+    init(tokens: [AWKToken], lines: [Int]) {
+        self.tokens = tokens[...]
+        self.lines = lines[...]
+    }
+
+    private init(tokens: ArraySlice<AWKToken>, lines: ArraySlice<Int>) {
+        self.tokens = tokens
+        self.lines = lines
+    }
+
+    var first: AWKToken? { tokens.first }
+    /// The source line of the token at the front of the stream, if any.
+    var line: Int? { lines.first }
+
+    func dropFirst() -> TokenStream {
+        TokenStream(tokens: tokens.dropFirst(), lines: lines.dropFirst())
+    }
+}
 
 // MARK: - Error
 
@@ -22,8 +45,8 @@ struct Parser<T> {
     let parse: (inout TokenStream) throws -> T
     init(_ parse: @escaping (inout TokenStream) throws -> T) { self.parse = parse }
 
-    func run(on tokens: [AWKToken]) throws -> T {
-        var stream = tokens[...]
+    func run(on tokens: [AWKToken], lines: [Int]) throws -> T {
+        var stream = TokenStream(tokens: tokens, lines: lines)
         return try parse(&stream)
     }
 }

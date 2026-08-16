@@ -37,8 +37,8 @@ THIS SOFTWARE.
 
 enum AWKParser {
   // C: yyparse() — awkgram.y
-  static func parse(_ tokens: [AWKToken]) throws -> AWKProgram {
-    try program().run(on: tokens)
+  static func parse(_ tokens: [AWKToken], lines: [Int]) throws -> AWKProgram {
+    try program().run(on: tokens, lines: lines)
   }
 }
 
@@ -235,42 +235,50 @@ private func stmtBlock() -> Parser<[Statement]> {
 // stmtlist: stmt*  (left-recursive in yacc → iterative here)
 // C: stmtlist — awkgram.y
 private func stmtList() -> Parser<[Statement]> {
-    lazy(stmt()).many.map { stmts in stmts.filter { if case .empty = $0 { return false }; return true } }
+    lazy(stmt()).many.map { stmts in
+        stmts.filter {
+            if case .lineMarker(_, .empty) = $0 { return false }
+            return true
+        }
+    }
 }
 
 // C: stmt — awkgram.y
 private func stmt() -> Parser<Statement> {
     Parser { stream in
+        let ln = stream.line ?? 1
+        let result: Statement
         switch stream.first {
         case .kwBreak:
-            stream = stream.dropFirst(); try stEnd().parse(&stream); return .break_
+            stream = stream.dropFirst(); try stEnd().parse(&stream); result = .break_
         case .kwContinue:
-            stream = stream.dropFirst(); try stEnd().parse(&stream); return .continue_
+            stream = stream.dropFirst(); try stEnd().parse(&stream); result = .continue_
         case .kwNext:
-            stream = stream.dropFirst(); try stEnd().parse(&stream); return .next
+            stream = stream.dropFirst(); try stEnd().parse(&stream); result = .next
         case .kwNextfile:
-            stream = stream.dropFirst(); try stEnd().parse(&stream); return .nextFile
+            stream = stream.dropFirst(); try stEnd().parse(&stream); result = .nextFile
         case .kwDo:
-            return try parseDoWhile().parse(&stream)
+            result = try parseDoWhile().parse(&stream)
         case .kwExit:
-            return try parseExit().parse(&stream)
+            result = try parseExit().parse(&stream)
         case .kwFor:
-            return try parseFor().parse(&stream)
+            result = try parseFor().parse(&stream)
         case .kwIf:
-            return try parseIf().parse(&stream)
+            result = try parseIf().parse(&stream)
         case .lbrace:
-            return .block(try stmtBlock().parse(&stream))
+            result = .block(try stmtBlock().parse(&stream))
         case .kwReturn:
-            return try parseReturn().parse(&stream)
+            result = try parseReturn().parse(&stream)
         case .kwWhile:
-            return try parseWhile().parse(&stream)
+            result = try parseWhile().parse(&stream)
         case .semicolon:
-            stream = stream.dropFirst(); try skipNL().parse(&stream); return .empty
+            stream = stream.dropFirst(); try skipNL().parse(&stream); result = .empty
         default:
             let s = try simpleStmt().parse(&stream)
             try stEnd().parse(&stream)
-            return s
+            result = s
         }
+        return .lineMarker(ln, result)
     }
 }
 

@@ -43,8 +43,13 @@ enum AWKSignal: Error {
 }
 
 struct AWKRuntimeError: Error, CustomStringConvertible {
-  let description: String
-  init(_ msg: String) { description = msg }
+  let message: String
+  var line: Int?
+  init(_ msg: String, line: Int? = nil) { message = msg; self.line = line }
+  var description: String {
+    guard let line else { return message }
+    return "\(message) at source line \(line)"
+  }
 }
 
   // MARK: - AWK Runtime Utilities

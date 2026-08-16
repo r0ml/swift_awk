@@ -48,22 +48,27 @@ struct AWKLexer {
   // MARK: - Public entry point
   
   // C: main scan loop driving yylex() — lex.c
-  mutating func tokenize() throws -> [AWKToken] {
+  mutating func tokenize() throws -> (tokens: [AWKToken], lines: [Int]) {
     var result: [AWKToken] = []
+    var lines: [Int] = []
     var last: AWKToken? = nil
-    
+
     while !atEnd {
+      let tokLine = line
       guard let tok = try scan(regexOK: isRegexContext(last)) else { continue }
       // Replicate the C lexer's } behaviour: always inject ';' before '}'
       // so that `{ print }` parses as `{ print ; }`.
       if case .rbrace = tok, !isTerminator(last) {
         result.append(.semicolon)
+        lines.append(tokLine)
       }
       result.append(tok)
+      lines.append(tokLine)
       last = tok
     }
     result.append(.eof)
-    return result
+    lines.append(line)
+    return (result, lines)
   }
   
   // MARK: - Input primitives

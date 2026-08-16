@@ -73,6 +73,7 @@ indirect enum Statement {
   case break_
   case continue_
   case empty
+  case lineMarker(Int, Statement)     // wraps a statement with its source line number
 }
 
 enum PrintKind { case print, printf }

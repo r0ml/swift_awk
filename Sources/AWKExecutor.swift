@@ -183,7 +183,7 @@ extension RuntimeState {
     getr:
       while let rec = try await awkGets() {
           NR += 1; FNR += 1
-          record = rec
+          setField(0, rec)
           
           for (idx, rule) in program.rules.enumerated() {
             do {
@@ -454,8 +454,6 @@ extension RuntimeState {
       let curNum = AWKRuntime.parseNum(curStr)
       let newVal = applyOp(op, lhsNum: curNum, lhsStr: curStr, rhs: rhsVal)
       setField(n, newVal.asString())
-      // FIXME: why the reference to donefld here?
-      if n == 0 { donefld = false }
       _ = cur  // suppress warning
       return newVal
     }
@@ -745,7 +743,7 @@ extension RuntimeState {
       }
     } else {
       NR += 1; FNR += 1
-      record = line
+      setField(0, line)
     }
     return ValueCell(number: 1)
   }
@@ -763,7 +761,7 @@ extension RuntimeState {
       // (strnum) treatment when it looks like a number, matching real awk's getline.
       _ = try await evalLValue(lv) { _ in ValueCell(field: line) }
     } else if updates0 {
-      record = line
+      setField(0, line)
     }
     return ValueCell(number: 1)
   }

@@ -112,6 +112,8 @@ extension AWKProgram {
 
     func visitStmt(_ s: Statement, _ params: Set<String>) {
       switch s {
+        case .lineMarker(_, let inner):
+          visitStmt(inner, params)
         case .expression(let e):
           visitExpr(e, params)
         case .print_(_, let args, let dest):

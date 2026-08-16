@@ -168,10 +168,10 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
       // Step 1: Lex
       var lexer = AWKLexer(options.lexprog ?? "")
-      let tokens = try lexer.tokenize()          // → [AWKToken]
+      let (tokens, lines) = try lexer.tokenize()          // → [AWKToken], [Int]
 
       // Step 2: Parse
-      let ast = try AWKParser.parse(tokens)      // → AWKProgram
+      let ast = try AWKParser.parse(tokens, lines: lines) // → AWKProgram
       await runtime.setDeclaredArrayNames(ast.staticArrayVariableNames())
 
       setlocale(LC_NUMERIC, ""); /* back to whatever it is locally */

@@ -39,6 +39,14 @@ extension RuntimeState {
   // C: execute() — run.c  (ifstat / whilestat / dostat / forstat / instat / jump)
   func exec(_ stmt: Statement) async throws {
     switch stmt {
+      case .lineMarker(let ln, let inner):
+        do {
+          try await exec(inner)
+        } catch var err as AWKRuntimeError {
+          if err.line == nil { err.line = ln }
+          throw err
+        }
+
       case .empty: break
         
       case .expression(let e):
