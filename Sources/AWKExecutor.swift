@@ -952,7 +952,10 @@ func substringsBetweenMatches(
 // ranges (e.g. r-U) are stripped.  Everything outside bracket expressions —
 // including escape sequences — is passed through unchanged.
 func fixre(_ s: String) -> String {
-    var result = ""
+    var result: [Character] = []
+    // Index into `result` where the most recently completed atom begins —
+    // i.e. what a following quantifier (*, +, ?, {n,m}) would apply to.
+    var atomStart = 0
     var i = s.startIndex
 
     while i < s.endIndex {
@@ -960,6 +963,7 @@ func fixre(_ s: String) -> String {
 
         // Escape sequence.
         if ch == "\\" {
+            atomStart = result.count
             let ni = s.index(after: i)
             // Octal escape (\d, \dd, \ddd, 1-3 octal digits) — matches
             // one-true-awk's quoted() in b.c, which treats *any* leading
@@ -976,7 +980,7 @@ func fixre(_ s: String) -> String {
                     digits += 1
                 }
                 if let scalar = Unicode.Scalar(n) {
-                    result.append(regexEscapeLiteral(Character(scalar)))
+                    result.append(contentsOf: regexEscapeLiteral(Character(scalar)))
                 }
                 i = j
                 continue
@@ -994,6 +998,7 @@ func fixre(_ s: String) -> String {
 
         // Start of a bracket expression.
         if ch == "[" {
+            atomStart = result.count
             var classStr = "["
             var j = s.index(after: i)
 
@@ -1036,11 +1041,73 @@ func fixre(_ s: String) -> String {
             continue
         }
 
+        // Parenthesized group — track balanced depth (skipping escaped
+        // parens) so the whole group counts as a single atom for a
+        // following quantifier, matching how the {n}* fixup below decides
+        // what to wrap.
+        if ch == "(" {
+            let groupStart = result.count
+            result.append(ch)
+            i = s.index(after: i)
+            var depth = 1
+            while i < s.endIndex, depth > 0 {
+                let c2 = s[i]
+                if c2 == "\\" {
+                    result.append(c2)
+                    i = s.index(after: i)
+                    if i < s.endIndex { result.append(s[i]); i = s.index(after: i) }
+                    continue
+                }
+                if c2 == "(" { depth += 1 }
+                if c2 == ")" { depth -= 1 }
+                result.append(c2)
+                i = s.index(after: i)
+            }
+            atomStart = groupStart
+            continue
+        }
+
+        // Interval bound: {n}, {n,}, or {n,m} — a "duplicated RE" per POSIX
+        // ERE. Swift's Regex refuses to parse a *second* quantifier stacked
+        // directly onto one of these (e.g. `b{0}*`), even though
+        // one-true-awk's own hand-rolled regex engine accepts it leniently
+        // ({0}* collapses to the atom's zero-width-only form; {0,}* to
+        // plain `*`). Wrap the interval-quantified atom in a non-capturing
+        // group so the following quantifier applies to the group instead
+        // of re-quantifying an already-quantified atom.
+        if ch == "{" {
+            var j = s.index(after: i)
+            var braceContent = ""
+            while j < s.endIndex, s[j] != "}" {
+                braceContent.append(s[j])
+                j = s.index(after: j)
+            }
+            let isValidBound = !braceContent.isEmpty
+                && braceContent.allSatisfy { $0.isNumber || $0 == "," }
+                && braceContent.filter { $0 == "," }.count <= 1
+            if j < s.endIndex, isValidBound {
+                let afterBrace = s.index(after: j)
+                result.append("{")
+                result.append(contentsOf: braceContent)
+                result.append("}")
+                if afterBrace < s.endIndex, "*+?{".contains(s[afterBrace]) {
+                    result.insert(contentsOf: "(?:", at: atomStart)
+                    result.append(")")
+                }
+                i = afterBrace
+                atomStart = result.count
+                continue
+            }
+            // Not a valid interval (e.g. a literal '{' with no matching
+            // bound) — fall through and treat '{' as an ordinary character.
+        }
+
+        atomStart = result.count
         result.append(ch)
         i = s.index(after: i)
     }
 
-    return result
+    return String(result)
 }
 
 // Escapes a decoded literal character (e.g. from an octal escape) so it's
