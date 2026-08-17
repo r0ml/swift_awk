@@ -443,28 +443,29 @@ extension RuntimeState {
       let arg: Cell = argIdx < args.count ? (try await eval(args[argIdx])) : EmptyCell()
       argIdx += 1
 
+      let specc = spec.appending(String(type))
       switch type {
         case "d", "i":
-          result += cFormat( spec + "d", Int64(bitPattern: UInt64(arg.getNumber())))
-        case "o": result += cFormat( spec + "o", UInt64(arg.getNumber()))
-        case "x": result += cFormat( spec + "x", UInt64(arg.getNumber()))
-        case "X": result += cFormat( spec + "X", UInt64(arg.getNumber()))
-        case "u": result += cFormat( spec + "u", UInt64(arg.getNumber()))
-        case "e": result += cFormat( spec + "e", arg.getNumber())
-        case "E": result += cFormat( spec + "E", arg.getNumber())
-        case "f": result += cFormat( spec + "f", arg.getNumber())
-        case "g": result += cFormat( spec + "g", arg.getNumber())
-        case "G": result += cFormat( spec + "G", arg.getNumber())
-        case "a": result += cFormat( spec + "a", arg.getNumber())
-        case "A": result += cFormat( spec + "A", arg.getNumber())
-        case "s": result += cFormat( spec + "s", arg.asString(fmt: CONVFMT))
+          result += (spec + "d").cFormat( Int64(bitPattern: UInt64(arg.getNumber())))
+        case "o": result += specc.cFormat( UInt64(arg.getNumber()))
+        case "x": result += specc.cFormat(  UInt64(arg.getNumber()))
+        case "X": result += specc.cFormat( UInt64(arg.getNumber()))
+        case "u": result += specc.cFormat( UInt64(arg.getNumber()))
+        case "e": result += specc.cFormat( arg.getNumber())
+        case "E": result += specc.cFormat(  arg.getNumber())
+        case "f": result += specc.cFormat(  arg.getNumber())
+        case "g": result += specc.cFormat( arg.getNumber())
+        case "G": result += specc.cFormat(  arg.getNumber())
+        case "a": result += specc.cFormat(  arg.getNumber())
+        case "A": result += specc.cFormat(  arg.getNumber())
+        case "s": result += specc.cFormat( arg.asString(fmt: CONVFMT))
         case "c":
           if arg.isNumber && arg.getNumber().rounded() == arg.getNumber() {
             let nn = UInt(arg.getNumber()) & 0xFF
-            if nn != 0 { result += cFormat(spec + "c", UInt8(nn)) }
+            if nn != 0 { result += specc.cFormat( UInt8(nn)) }
           } else {
             let s = arg.asString()
-            result += cFormat(spec + ".1s", s)
+            result += (spec+".1s").cFormat(s)
           }
         default: result.append(type)
       }

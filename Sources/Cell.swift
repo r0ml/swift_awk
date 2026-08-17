@@ -293,9 +293,9 @@ struct BuiltInDict : Cell, Keyed {
 
 func awkFormat( _ fmt : String, _ n : Double) -> String {
   if n.rounded() == n {
-    return cFormat("%.30g", n)
+    return "%.30g".cFormat(n)
   } else {
-    return cFormat(fmt, n)
+    return fmt.cFormat(n)
   }
 }
 

@@ -86,7 +86,7 @@ public struct SyncByteStream: Sequence {
   // "" (paragraph mode: records separated by one-or-more blank lines, leading blank
   // lines skipped), or (a one-true-awk extension) a longer string used as an ERE.
   public func records(rs : String) -> SyncRecordReader {
-    SyncRecordReader(byteStream: self, rs: rs)
+    SyncRecordReader(byteStream: self, rs: rs, encoding: localeUnicodeEncoding())
   }
 
 }
@@ -105,8 +105,9 @@ public struct SyncRecordReader: Sequence {
   var encoding : any Unicode.Encoding.Type = UTF8.self
   var mode : RSMode
 
-  public init(byteStream: SyncByteStream, rs: String) {
+  public init(byteStream: SyncByteStream, rs: String, encoding: any Unicode.Encoding.Type = UTF8.self) {
     self.byteStream = byteStream
+    self.encoding = encoding
     if rs.isEmpty {
       self.mode = .paragraph
     } else if rs.count == 1 {
@@ -255,7 +256,8 @@ final class AWKFile : @unchecked Sendable {
     // Refill buffer from handle
     func refill() throws {
       let data = try handle.readAvailableBytes()
-      guard !data.isEmpty, let s = String(bytes: data, encoding: .utf8) else { return }
+      guard !data.isEmpty else { return }
+      guard let s = String(bytes: data, encoding: localeEncoding()) ?? String(bytes: data, encoding: .isoLatin1) else { return }
       buffer += s
     }
     
@@ -296,11 +298,7 @@ final class AWKFile : @unchecked Sendable {
   
   // C: (direct fwrite/fputs via FILE* in printstat() / redirect() — run.c)
   func write(_ s: String) throws {
-    // FIzME: some tests (like t.printf2) yield different results because of latin1 vs utf8 encodings
-//    guard let data = s.data(using: .utf8) else { return }
-    guard let data = s.data(using: .isoLatin1) else { return }
-    // FIXME: this works for isoLatin1, but not for .utf8 or localeEncoding()
-// guard let data = s.data(using: localeEncoding() ) else { return }
+    guard let data = s.data(using: localeEncoding()) else { return }
     try handle.write(data)
   }
   

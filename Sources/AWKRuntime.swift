@@ -89,9 +89,9 @@ enum AWKRuntime {
     }
     var intPart = 0.0
     if modf(n, &intPart) == 0.0 {
-      return cFormat("%.30g", n)
+      return "%.30g".cFormat(n)
     }
-    return cFormat(fmt, n)
+    return fmt.cFormat(n)
   }
   
   // Returns true when the string is entirely numeric (per POSIX is_number).

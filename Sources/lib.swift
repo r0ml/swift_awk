@@ -135,3 +135,16 @@ func localeEncoding() -> String.Encoding {
         return .utf8
     }
 }
+
+// Maps the process locale's codeset to the Unicode.Encoding used when
+// decoding/encoding byte streams (SyncRecordReader, AWKFile). Keeping this in
+// sync with localeEncoding() ensures reads and writes round-trip bytes
+// losslessly instead of opportunistically guessing UTF-8 per record.
+func localeUnicodeEncoding() -> any Unicode.Encoding.Type {
+    switch localeEncoding() {
+    case .isoLatin1:
+        return ISOLatin1.self
+    default:
+        return UTF8.self
+    }
+}

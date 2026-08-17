@@ -88,7 +88,7 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
       case "f":  // next argument is program filename
           do {
-            let k = try readFileAsString(at: v)
+            let k = try FilePath(v).readAsString()
             options.lexprog = (options.lexprog ?? "")  + k
           } catch(let e) {
             throw CmdErr(1, "unable to read program file \(v): \(e.localizedDescription)")
