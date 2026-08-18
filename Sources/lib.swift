@@ -115,11 +115,12 @@ extension RuntimeState {
 
 }
 
-
+/*
 func localeEncoding() -> IEncoding {
     let codeset = String(cString: nl_langinfo(CODESET))
   return IEncoding(codeset) ?? .utf8
 }
+ */
 
 // Maps the process locale's codeset to the Unicode.Encoding used when
 // decoding/encoding byte streams (SyncRecordReader, AWKFile). Keeping this in

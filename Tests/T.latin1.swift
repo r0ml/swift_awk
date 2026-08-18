@@ -22,7 +22,7 @@ extension awkTest {
       try await run(args: "{ gsub(/\\351/,\"\\370\"); print }", latin1,
                     encoding: le) { r in 
 //        print(r.string(encoded: le) )
-        try await run(output: r.string(encoded: le), args: "{ gsub(/È/, \"¯\"); print }", latin1,
+        try await run(output: r.string(encoded: le), args: "{ gsub(/é/, \"ø\"); print }", latin1,
                       encoding: le)
         
       }
@@ -30,8 +30,8 @@ extension awkTest {
     
     @Test("third") func third() async throws {
       let latin1 = try inFile("latin1")
-      try await run(args: "{ gsub(/\\300-\\370/,\"\"); print }", latin1, encoding: le) { r in 
-        try await run(output: r.string(encoded: le), args: "{ gsub(/[^¿-¯]/, \"\"); print }", latin1, encoding: le)
+      try await run(args: "{ gsub(/[\\300-\\370]/,\"\"); print }", latin1, encoding: le) { r in
+        try await run(output: r.string(encoded: le), args: "{ gsub(/[À-ø]/, \"\"); print }", latin1, encoding: le)
         
       }
     }

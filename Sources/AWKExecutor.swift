@@ -1025,8 +1025,31 @@ func fixre(_ s: String) -> String {
                     break
                 }
                 if c == "\\" {
-                    classStr.append(c)
                     let nj = s.index(after: j)
+                    // Octal escape (\d, \dd, \ddd) inside a bracket expression — same
+                    // one-true-awk quoted() semantics applied outside brackets above.
+                    // Swift's Regex only recognizes \0dd as octal even inside a class,
+                    // so \300 would otherwise fail to parse; convert to the literal
+                    // character instead (escaping it if it would be class-special).
+                    if nj < s.endIndex, let d0 = s[nj].wholeNumberValue, (0...7).contains(d0) {
+                        var n = d0
+                        var k = s.index(after: nj)
+                        var digits = 1
+                        while digits < 3, k < s.endIndex, let d = s[k].wholeNumberValue, (0...7).contains(d) {
+                            n = n * 8 + d
+                            k = s.index(after: k)
+                            digits += 1
+                        }
+                        if let scalar = Unicode.Scalar(n) {
+                            let lit = Character(scalar)
+                            if "]^-\\".contains(lit) { classStr.append("\\") }
+                            classStr.append(lit)
+                        }
+                        j = k
+                        firstInClass = false
+                        continue
+                    }
+                    classStr.append(c)
                     if nj < s.endIndex {
                         classStr.append(s[nj])
                         j = s.index(after: nj)

@@ -88,7 +88,10 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
 
       case "f":  // next argument is program filename
           do {
-            let k = try FilePath(v).readAsString()
+            // Program text is byte-oriented, like the rest of one-true-awk: fall back to
+            // Latin-1 (which can decode any byte sequence) when the file isn't valid UTF-8,
+            // rather than failing outright on legacy 8-bit-encoded scripts.
+            let k = try (try? FilePath(v).readAsString()) ?? FilePath(v).readAsString(encoding: .latin1)
             options.lexprog = (options.lexprog ?? "")  + k
           } catch(let e) {
             throw CmdErr(1, "unable to read program file \(v): \(e.localizedDescription)")

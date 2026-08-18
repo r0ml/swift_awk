@@ -86,7 +86,7 @@ public struct SyncByteStream: Sequence {
   // "" (paragraph mode: records separated by one-or-more blank lines, leading blank
   // lines skipped), or (a one-true-awk extension) a longer string used as an ERE.
   public func records(rs : String) -> SyncRecordReader {
-    SyncRecordReader(byteStream: self, rs: rs, encoding: localeEncoding())
+    SyncRecordReader(byteStream: self, rs: rs, encoding: Environment.getStringEncoding())
   }
 
 }
@@ -124,7 +124,14 @@ public struct SyncRecordReader: Sequence {
     var mode : RSMode
 
     func decode(_ bytes: [UInt8]) -> String? {
-      return try? encoding.toString(bytes)
+      // `encoding` is usually derived from the process locale, which requires a prior
+      // successful setlocale() call — that silently fails whenever the requested codeset
+      // isn't installed under the exact locale name libc expects (e.g. "C.ISO-8859-1" isn't
+      // a real macOS locale), leaving `encoding` wrong for the actual bytes on disk. Returning
+      // nil here would end the iteration early (nil means "no more records" to IteratorProtocol),
+      // silently truncating input instead of just misdecoding it. Latin-1 never fails to decode
+      // any byte sequence, so fall back to it rather than dropping the rest of the file.
+      return (try? encoding.toString(bytes)) ?? (try? IEncoding.latin1.toString(bytes))
     }
 
     mutating func nextLine(rs: UInt8) -> String? {
@@ -244,7 +251,7 @@ final class AWKFile : @unchecked Sendable {
     func refill() throws {
       let data = try handle.readAvailableBytes()
       guard !data.isEmpty else { return }
-      let s = try localeEncoding().toString(data)
+      let s = try Environment.getStringEncoding().toString(data)
       buffer += s
     }
     
@@ -285,7 +292,7 @@ final class AWKFile : @unchecked Sendable {
   
   // C: (direct fwrite/fputs via FILE* in printstat() / redirect() — run.c)
   func write(_ s: String) throws {
-    let data = try localeEncoding().toBytes(s)
+    let data = try Environment.getStringEncoding().toBytes(s)
     try handle.write(data)
   }
   
