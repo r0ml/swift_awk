@@ -28,13 +28,11 @@ extension awkTest {
     ) func basic(_ f : String) async throws {
       let p = "ttests"
       let g = String(f.dropFirst("expected.".count))
-      var expected = try fileContents("\(p)/\(f)")
+      var expected = try fileContents("\(p)/\(f)", encoding: IEncoding("LATIN1")!)
       if expected == "EMPTY\n" { expected = "" }
 
       let b = try geturl().appending(p)
       let inp1 = try inFile("\(p)/\(g)")
-
-      let env = ["LC_CTYPE": "en_US.LATIN1"] // "SHELLDEBUGGING" : "1"]
 
       let inp2 = try inFile("\(p)/test.data")
 
@@ -42,7 +40,7 @@ extension awkTest {
       // status follows the exit expression, so (unlike every other fixture here) they
       // can't be checked against the default expected status of 0.
       let status = ["t.exit": 1, "t.exit1": 2][g] ?? 0
-      try await run(status: status, output: expected, args: "-f", inp1, inp2.relativeTo(b), env: env, cd: b)
+      try await run(status: status, output: expected, args: "-f", inp1, inp2.relativeTo(b), cd: b, encoding: IEncoding("LATIN1")!)
 
     }
   }

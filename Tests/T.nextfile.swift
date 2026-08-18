@@ -63,8 +63,7 @@ extension awkTest {
         FNR == 10 { nextfile }  # print first line, quit
         """
       let (o, f) = try await buildReferenceFile(10)
-      try await run(output: o, args: [prog]+f,
-                    env: ["LC_ALL":"en_US.UTF-8"])
+      try await run(output: o, args: [prog]+f)
     }
 
     @Test("seventh") func seventh() async throws {
@@ -72,8 +71,7 @@ extension awkTest {
         { print $0; nextfile }  # print first line, quit
         """
       let (o, f) = try await buildReferenceFile(1)
-      try await run(output: o, args: [prog]+f,
-                    env: ["LC_CTYPE":"en_US.UTF-8"])
+      try await run(output: o, args: [prog]+f)
     }
   }
 }

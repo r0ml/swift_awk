@@ -34,10 +34,8 @@ extension awkTest {
       let b = try geturl().appending(p)
       let inp1 = try inFile("\(p)/\(g)")
 
-      let env = ["LC_CTYPE": "en_US.LATIN1"] // "SHELLDEBUGGING" : "1"]
-
       let inp2 = try inFile("\(p)/test.countries")
-      try await run(output: expected, args: "-f", inp1, inp2.relativeTo(b), inp2.relativeTo(b), env: env, cd: b)
+      try await run(output: expected, args: "-f", inp1, inp2.relativeTo(b), inp2.relativeTo(b), cd: b, encoding: IEncoding("latin1")!)
 
     }
   }
