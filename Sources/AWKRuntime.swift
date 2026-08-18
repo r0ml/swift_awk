@@ -175,7 +175,11 @@ enum AWKRuntime {
   // C: makedfa() — b.c
   static func makeRegex(_ pattern: String) throws -> Regex<AnyRegexOutput> {
     do {
-      return try Regex(fixre(pattern))
+      // one-true-awk matches individual (wide) characters, not grapheme clusters — e.g. a
+      // combining/joining mark like ZWNJ is its own character, not fused with its neighbor.
+      // Swift's default grapheme-cluster semantics would otherwise let a class like
+      // [[:alpha:]] consume a ZWNJ that happens to follow a letter.
+      return try Regex(fixre(pattern)).matchingSemantics(.unicodeScalar)
     } catch {
       throw AWKRuntimeError("invalid regex /\(pattern)/: \(error.localizedDescription)")
     }

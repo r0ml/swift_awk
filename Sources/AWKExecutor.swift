@@ -1024,6 +1024,25 @@ func fixre(_ s: String) -> String {
                     j = s.index(after: j)
                     break
                 }
+                // POSIX equivalence class [=x=] inside a bracket expression — expand to
+                // the base character plus its precomposed accented Latin-1 variants.
+                // Swift's Regex treats [=x=] as a literal set of just '=' and 'x' (no real
+                // collation equivalence), so without this a class like [[=a=][=A=]...]
+                // never matches ä, Ä, etc. as one-true-awk's locale-aware version would.
+                if c == "[", s.index(after: j) < s.endIndex, s[s.index(after: j)] == "=" {
+                    let afterEq = s.index(j, offsetBy: 2)
+                    let afterBase = afterEq < s.endIndex ? s.index(after: afterEq) : nil
+                    if let afterBase, afterBase < s.endIndex, s[afterBase] == "=",
+                       s.index(after: afterBase) < s.endIndex, s[s.index(after: afterBase)] == "]" {
+                        for lit in equivalenceClassVariants(s[afterEq]) {
+                            if "]^-\\".contains(lit) { classStr.append("\\") }
+                            classStr.append(lit)
+                        }
+                        j = s.index(after: s.index(after: afterBase))
+                        firstInClass = false
+                        continue
+                    }
+                }
                 if c == "\\" {
                     let nj = s.index(after: j)
                     // Octal escape (\d, \dd, \ddd) inside a bracket expression — same
@@ -1142,6 +1161,24 @@ func fixre(_ s: String) -> String {
 // inserted into the regex pattern as itself, not as a metacharacter.
 func regexEscapeLiteral(_ c: Character) -> String {
     ".^$|()[]{}*+?\\".contains(c) ? "\\\(c)" : String(c)
+}
+
+// Latin-1 accented variants sharing a base letter's primary collation weight —
+// covers what a real locale's [=x=] equivalence class matches in practice for
+// Western European text (see fixre's bracket-expression handling above).
+private let latin1EquivalenceClasses: [Character: String] = [
+    "a": "aàáâãäå", "A": "AÀÁÂÃÄÅ",
+    "e": "eèéêë",   "E": "EÈÉÊË",
+    "i": "iìíîï",   "I": "IÌÍÎÏ",
+    "o": "oòóôõöø", "O": "OÒÓÔÕÖØ",
+    "u": "uùúûü",   "U": "UÙÚÛÜ",
+    "y": "yýÿ",     "Y": "YÝ",
+    "c": "cç",      "C": "CÇ",
+    "n": "nñ",      "N": "NÑ",
+]
+
+func equivalenceClassVariants(_ base: Character) -> String {
+    latin1EquivalenceClasses[base] ?? String(base)
 }
 
 func cleanAWKCharacterClass(_ s: String) -> String {
