@@ -16,7 +16,7 @@ extension awkTest {
       for i in k {
         let z = FilePath(j.string + "/" + i)
         res2.append(z)
-        var h = try await FileDescriptor(forReading: j.string + "/" + i).bytes.lines(true, encoding: ISOLatin1.self)
+        var h = try await FileDescriptor(forReading: j.string + "/" + i).bytes.lines(true, encoding: .latin1)
         var x = n
         for try await j in h {
           if x <= 0 { break }

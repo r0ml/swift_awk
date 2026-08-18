@@ -86,7 +86,7 @@ public struct SyncByteStream: Sequence {
   // "" (paragraph mode: records separated by one-or-more blank lines, leading blank
   // lines skipped), or (a one-true-awk extension) a longer string used as an ERE.
   public func records(rs : String) -> SyncRecordReader {
-    SyncRecordReader(byteStream: self, rs: rs, encoding: localeUnicodeEncoding())
+    SyncRecordReader(byteStream: self, rs: rs, encoding: localeEncoding())
   }
 
 }
@@ -102,10 +102,10 @@ enum RSMode {
 public struct SyncRecordReader: Sequence {
   public typealias Element = String
   let byteStream: SyncByteStream
-  var encoding : any Unicode.Encoding.Type = UTF8.self
+  var encoding : IEncoding = .utf8
   var mode : RSMode
 
-  public init(byteStream: SyncByteStream, rs: String, encoding: any Unicode.Encoding.Type = UTF8.self) {
+  public init(byteStream: SyncByteStream, rs: String, encoding: IEncoding = .utf8) {
     self.byteStream = byteStream
     self.encoding = encoding
     if rs.isEmpty {
@@ -120,24 +120,11 @@ public struct SyncRecordReader: Sequence {
   public struct Iterator: IteratorProtocol {
     var byteIterator: SyncByteStream.Iterator
     var buffer = [UInt8]()
-    var encoding : any Unicode.Encoding.Type = UTF8.self
+    var encoding : IEncoding = .utf8
     var mode : RSMode
 
     func decode(_ bytes: [UInt8]) -> String? {
-      switch encoding {
-        case is ISOLatin1.Type:
-          return String(validating: bytes, as: ISOLatin1.self )
-        case is UTF16.Type:
-          let buff = bytes.withUnsafeBytes { $0.load(as: [UInt16].self) }
-          return String(validating: buff, as: UTF16.self )
-        case is UTF32.Type:
-          let buff = bytes.withUnsafeBytes { $0.load(as: [UInt32].self) }
-          return String(validating: buff, as: UTF32.self )
-        case is UTF8.Type:
-          fallthrough
-        default:
-          return String(validating: bytes, as: UTF8.self )
-      }
+      return try? encoding.toString(bytes)
     }
 
     mutating func nextLine(rs: UInt8) -> String? {
@@ -152,7 +139,7 @@ public struct SyncRecordReader: Sequence {
       }
 
       guard go else { return nil }
-      guard let line = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self) else {
+      guard let line = decode(buffer) else {
         buffer.removeAll()
         return nil
       }
@@ -171,7 +158,7 @@ public struct SyncRecordReader: Sequence {
           buffer.append(byte)
           if newlineRun >= 2 {
             while buffer.last == 0x0A { buffer.removeLast() }
-            let record = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self) ?? ""
+            let record = decode(buffer)
             buffer.removeAll()
             return record
           }
@@ -184,7 +171,7 @@ public struct SyncRecordReader: Sequence {
       guard sawContent else { return nil }
       while buffer.last == 0x0A { buffer.removeLast() }
       guard !buffer.isEmpty else { return nil }
-      let record = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self) ?? ""
+      let record = decode(buffer) 
       buffer.removeAll()
       return record
     }
@@ -197,7 +184,7 @@ public struct SyncRecordReader: Sequence {
         // could still grow with more input (e.g. "X+" against "aXX" might yet consume a
         // third X), so only finalize a match once it's followed by at least one
         // non-matching byte, confirming a greedy quantifier can't extend it further.
-        if let s = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self),
+        if let s = decode(buffer),
            let m = try? re.firstMatch(in: s), !m.range.isEmpty, m.range.upperBound < s.endIndex {
           let record = String(s[s.startIndex..<m.range.lowerBound])
           buffer = Array(s[m.range.upperBound...].utf8)
@@ -205,14 +192,14 @@ public struct SyncRecordReader: Sequence {
         }
         guard let byte = byteIterator.next() else {
           // EOF: a match touching the buffer's end is now final since no more input can arrive.
-          if let s = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self),
+          if let s = decode(buffer),
              let m = try? re.firstMatch(in: s), !m.range.isEmpty {
             let record = String(s[s.startIndex..<m.range.lowerBound])
             buffer = Array(s[m.range.upperBound...].utf8)
             return record
           }
           guard !buffer.isEmpty else { return nil }
-          let record = decode(buffer) ?? String(validating: buffer, as: ISOLatin1.self) ?? ""
+          let record = decode(buffer)
           buffer.removeAll()
           return record
         }
@@ -257,7 +244,7 @@ final class AWKFile : @unchecked Sendable {
     func refill() throws {
       let data = try handle.readAvailableBytes()
       guard !data.isEmpty else { return }
-      guard let s = String(bytes: data, encoding: localeEncoding()) ?? String(bytes: data, encoding: .isoLatin1) else { return }
+      let s = try localeEncoding().toString(data)
       buffer += s
     }
     
@@ -298,7 +285,7 @@ final class AWKFile : @unchecked Sendable {
   
   // C: (direct fwrite/fputs via FILE* in printstat() / redirect() — run.c)
   func write(_ s: String) throws {
-    guard let data = s.data(using: localeEncoding()) else { return }
+    let data = try localeEncoding().toBytes(s)
     try handle.write(data)
   }
   

@@ -116,30 +116,16 @@ extension RuntimeState {
 }
 
 
-func localeEncoding() -> String.Encoding {
+func localeEncoding() -> IEncoding {
     let codeset = String(cString: nl_langinfo(CODESET))
-
-    switch codeset.uppercased() {
-    case "UTF-8":
-        return .utf8
-
-    case "ISO-8859-1", "ISO8859-1", "LATIN1":
-        return .isoLatin1
-
-    case "US-ASCII", "ASCII":
-        return .ascii
-
-    default:
-        // You'll need to handle other codesets if you want
-        // complete locale support.
-        return .utf8
-    }
+  return IEncoding(codeset) ?? .utf8
 }
 
 // Maps the process locale's codeset to the Unicode.Encoding used when
 // decoding/encoding byte streams (SyncRecordReader, AWKFile). Keeping this in
 // sync with localeEncoding() ensures reads and writes round-trip bytes
 // losslessly instead of opportunistically guessing UTF-8 per record.
+/*
 func localeUnicodeEncoding() -> any Unicode.Encoding.Type {
     switch localeEncoding() {
     case .isoLatin1:
@@ -148,3 +134,4 @@ func localeUnicodeEncoding() -> any Unicode.Encoding.Type {
         return UTF8.self
     }
 }
+*/

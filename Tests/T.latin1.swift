@@ -11,7 +11,7 @@ extension awkTest {
 
     @Test("first") func first() async throws {
       let latin1 = try inFile("latin1")
-      let latc = try latin1.readAsString(encoding: ISOLatin1.self)
+      let latc = try latin1.readAsString(encoding: IEncoding.latin1)
       try await run(output: latc,
                     args: "{ print $0 }", latin1,
                     encoding: le )
@@ -37,7 +37,7 @@ extension awkTest {
     }
     
     @Test("fourth") func fourth() async throws {
-      let s = "/·/"
+      let s = "/·/\n"
       let foo1 = try tmpfile("foo1", s )
       try await run(output: s, args: "-f", foo1, foo1 )
     }

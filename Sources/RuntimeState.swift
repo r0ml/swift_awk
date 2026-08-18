@@ -27,7 +27,7 @@ THIS SOFTWARE.
 
 import CMigration
 import Darwin
-import Foundation
+// import Foundation
 
 struct CallFrame {
   let funcName: String
