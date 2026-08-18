@@ -156,7 +156,7 @@ extension RuntimeState {
         return try resolveVar(name, nil)
 
       case .field(let e):
-        let n = Int(try await eval(e).getNumber())
+        let n = try fieldIndex(try await eval(e).getNumber())
         let s = getField(n)
         let c = ValueCell(field: s)
         //          if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }

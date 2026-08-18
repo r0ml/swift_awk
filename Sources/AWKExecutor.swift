@@ -315,7 +315,7 @@ extension RuntimeState {
         // We wrap this in a FieldProxy approach: return a cell and post-assign it.
         // This is handled per-case in execAssign and incr/decr.
         // For the incr/decr case, we need the actual stored cell; use a field cell.
-        let n = Int(try await eval(e).getNumber())
+        let n = try fieldIndex(try await eval(e).getNumber())
         let val = makeFieldCell(n)
         if let store {
           let res = try store(val)
@@ -328,7 +328,7 @@ extension RuntimeState {
         return try await resolveElement(name: name, keys: keys, store)
 
       case .indirect(let e):
-        let n = Int(try await eval(e).getNumber())
+        let n = try fieldIndex(try await eval(e).getNumber())
         let val = makeFieldCell(n)
         if let store {
           let res = try store(val)
@@ -428,6 +428,17 @@ extension RuntimeState {
   }
   
   // MARK: - Field proxy cells
+
+  // C: fieldadr() — lib.c — real awk FATALs rather than silently growing fldtab (or
+  // returning empty) for a field number that couldn't have come from a real record,
+  // since a value like $40000000000000 would otherwise try to allocate a fields
+  // array with tens of trillions of entries.
+  func fieldIndex(_ raw: Double) throws -> Int {
+    guard raw >= 0, raw <= Double(Int32.max) else {
+      throw AWKRuntimeError("trying to access out of range field \(Int64(raw))")
+    }
+    return Int(raw)
+  }
 
   // C: fieldadr() — lib.c
   func makeFieldCell(_ n: Int) -> Cell {
