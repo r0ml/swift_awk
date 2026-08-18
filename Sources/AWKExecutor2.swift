@@ -251,7 +251,15 @@ extension RuntimeState {
 
       case .getlineFrom(let lv, let src):
         let path = try await eval(src).asString()
-        let file = try await fileFor(name: path, mode: .read)
+        // C: getline() in run.c — a redirect() failure for '>'/'>>' is fatal, but
+        // failing to *open* the source of `getline <file` is not: POSIX has getline
+        // return -1 so the script can test for it, rather than aborting the program.
+        let file: AWKFile
+        do {
+          file = try await fileFor(name: path, mode: .read)
+        } catch {
+          return ValueCell(number: -1)
+        }
         return try await readLineInto(lv: lv, from: file, updates0: true)
 
       case .getlinePipe(let lv, let cmd):
