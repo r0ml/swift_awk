@@ -264,12 +264,18 @@ final class AWKFile : @unchecked Sendable {
       if buffer.isEmpty { return nil }
       if let range = buffer.range(of: "\n\n") {
         let record = String(buffer[buffer.startIndex..<range.lowerBound])
-        buffer.removeSubrange(buffer.startIndex...range.upperBound)
+        // range.upperBound already points just past the "\n\n" separator, i.e. at the
+        // first character of the next paragraph — removing through it too (an inclusive
+        // `...`) would eat that character.
+        buffer.removeSubrange(buffer.startIndex..<range.upperBound)
         return record
       }
+      // Last paragraph in the file: no trailing blank-line separator follows, but any
+      // trailing newline(s) still aren't part of the record's content.
+      while buffer.hasSuffix("\n") { buffer.removeLast() }
       let record = buffer; buffer = ""; return record
     }
-    
+
     if rs.count == 1 {
       let sep = Character(rs)
       if let idx = buffer.firstIndex(of: sep) {
