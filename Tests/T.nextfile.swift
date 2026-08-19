@@ -16,7 +16,7 @@ extension awkTest {
       for i in k {
         let z = FilePath(j.string + "/" + i)
         res2.append(z)
-        var h = try await FileDescriptor(forReading: j.string + "/" + i).bytes.lines(true, encoding: .latin1)
+        let h = try FileDescriptor(forReading: j.string + "/" + i).bytes.lines(true, encoding: .latin1)
         var x = n
         for try await j in h {
           if x <= 0 { break }
@@ -28,33 +28,49 @@ extension awkTest {
     }
 
     @Test("first") func first() async throws {
+      let (o, f) = try await buildReferenceFile(1)
+
       let prog = """
+        { print $0; 
+          for (i = 1; i < 10; i++)
+          if (i == 1)
+            nextfile
+          print "nextfile for error"
+        }  # print first line, quit
         
         """
+      try await run(output: o, args: [prog] + f)
     }
     
     @Test("second") func second() async throws {
+      let (o, f) = try await buildReferenceFile(1)
       let prog = """
+        { print $0; 
+          i = 1
+          while (i < 10)
+          if (i++ == 1)
+            nextfile
+          print "nextfile while error"
+        }  # print first line, quit
         
         """
+      try await run(output: o, args: [prog] + f)   
     }
 
     @Test("third") func third() async throws {
+      let (o, f) = try await buildReferenceFile(1)
       let prog = """
-        
-        """
-    }
+        { print $0; 
+          i = 1
+          do {
+          if (i++ == 1)
+            nextfile  # print first line, quit
+          } while (i < 10)
+          print "nextfile do error"
+        }
 
-    @Test("fourth") func fourth() async throws {
-      let prog = """
-        
         """
-    }
-
-    @Test("fifth") func fifth() async throws {
-      let prog = """
-        
-        """
+      try await run(output: o, args: [prog] + f)   
     }
 
     @Test("sixth") func sixth() async throws {
@@ -71,7 +87,7 @@ extension awkTest {
         { print $0; nextfile }  # print first line, quit
         """
       let (o, f) = try await buildReferenceFile(1)
-      try await run(output: o, args: [prog]+f)
+      try await run(output: o, args: [prog] + f)
     }
   }
 }
