@@ -217,13 +217,15 @@ extension RuntimeState {
       case .patternMatch(let e, let re):
         let s = try await eval(e).asString()
         let pat = try await regexPattern(re)
-        let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
+        // An invalid regex (e.g. a dynamic pattern from a string variable) must be
+        // fatal, not silently treated as "no match" — matches real awk's behavior.
+        let matched = try AWKRuntime.match(pattern: pat, in: s) != nil
         return ValueCell(number: matched ? 1 : 0)
 
       case .patternNotMatch(let e, let re):
         let s = try await eval(e).asString()
         let pat = try await regexPattern(re)
-        let matched = (try? AWKRuntime.match(pattern: pat, in: s)) != nil
+        let matched = try AWKRuntime.match(pattern: pat, in: s) != nil
         return ValueCell(number: matched ? 0 : 1)
 
       case .inArray(let e, let arrName):

@@ -166,4 +166,161 @@ extension AWKProgram {
 
     return names
   }
+
+  // C: awk compiles every regex referenced anywhere in the program up front (b.c),
+  // so an invalid one (e.g. an unbalanced paren, an unterminated character class)
+  // is fatal immediately — even for a regex used only as a pattern that never
+  // matches any input. Collecting every literal /re/ up front lets the caller
+  // validate them all before running, since our interpreter otherwise only
+  // compiles a regex lazily, the first time it's actually evaluated.
+  func staticRegexLiterals() -> [String] {
+    var patterns: [String] = []
+
+    func visitLValue(_ lv: LValue) {
+      switch lv {
+        case .variable: break
+        case .field(let e): visitExpr(e)
+        case .element(_, let keys): keys.forEach(visitExpr)
+        case .indirect(let e): visitExpr(e)
+      }
+    }
+
+    func visitExpr(_ e: Expression) {
+      switch e {
+        case .regexMatch(let s): patterns.append(s)
+        case .number, .string, .variable: break
+        case .field(let e1): visitExpr(e1)
+        case .element(_, let keys): keys.forEach(visitExpr)
+        case .assign(_, let lv, let rhs): visitLValue(lv); visitExpr(rhs)
+        case .ternary(let a, let b, let c): visitExpr(a); visitExpr(b); visitExpr(c)
+        case .logicalOr(let a, let b), .logicalAnd(let a, let b),
+             .equal(let a, let b), .notEqual(let a, let b),
+             .lessThan(let a, let b), .lessEqual(let a, let b),
+             .greaterThan(let a, let b), .greaterEqual(let a, let b),
+             .patternMatch(let a, let b), .patternNotMatch(let a, let b),
+             .concat(let a, let b), .add(let a, let b), .subtract(let a, let b),
+             .multiply(let a, let b), .divide(let a, let b), .modulo(let a, let b),
+             .power(let a, let b), .indexExpr(let a, let b), .matchFuncExpr(let a, let b):
+          visitExpr(a); visitExpr(b)
+        case .notNull(let a), .negate(let a), .unaryPlus(let a), .logicalNot(let a), .closeExpr(let a):
+          visitExpr(a)
+        case .inArray(let e1, _): visitExpr(e1)
+        case .inArrayTuple(let es, _): es.forEach(visitExpr)
+        case .getline(let lv): if let lv { visitLValue(lv) }
+        case .getlineFrom(let lv, let e1): if let lv { visitLValue(lv) }; visitExpr(e1)
+        case .getlinePipe(let lv, let e1): if let lv { visitLValue(lv) }; visitExpr(e1)
+        case .preIncrement(let lv), .preDecrement(let lv), .postIncrement(let lv), .postDecrement(let lv):
+          visitLValue(lv)
+        case .userCall(_, let args), .builtinCall(_, let args), .sprintfExpr(let args):
+          args.forEach(visitExpr)
+        case .subExpr(_, let re, let repl, let target):
+          visitExpr(re); visitExpr(repl); visitLValue(target)
+        case .substrExpr(let s, let start, let len):
+          visitExpr(s); visitExpr(start)
+          if let len { visitExpr(len) }
+        case .splitExpr(let s, _, let fs):
+          visitExpr(s)
+          if let fs { visitExpr(fs) }
+      }
+    }
+
+    func visitStmt(_ s: Statement) {
+      switch s {
+        case .lineMarker(_, let inner): visitStmt(inner)
+        case .expression(let e): visitExpr(e)
+        case .print_(_, let args, let dest):
+          args.forEach(visitExpr)
+          if let dest {
+            switch dest {
+              case .pipe(let e), .append(let e), .redirect(let e): visitExpr(e)
+            }
+          }
+        case .delete_(let lv): visitLValue(lv)
+        case .if_(let cond, let then, let els):
+          visitExpr(cond); visitStmt(then)
+          if let els { visitStmt(els) }
+        case .while_(let cond, let body): visitExpr(cond); visitStmt(body)
+        case .doWhile(let body, let cond): visitStmt(body); visitExpr(cond)
+        case .for_(let initS, let cond, let post, let body):
+          if let initS { visitStmt(initS) }
+          if let cond { visitExpr(cond) }
+          if let post { visitStmt(post) }
+          visitStmt(body)
+        case .forIn(_, _, let body): visitStmt(body)
+        case .block(let stmts): stmts.forEach(visitStmt)
+        case .next, .nextFile, .break_, .continue_, .empty: break
+        case .exit_(let e), .return_(let e): if let e { visitExpr(e) }
+      }
+    }
+
+    for b in beginRules { b.forEach(visitStmt) }
+    for r in rules {
+      switch r.pattern {
+        case .always: break
+        case .expression(let e): visitExpr(e)
+        case .range(let a, let b): visitExpr(a); visitExpr(b)
+      }
+      r.body.forEach(visitStmt)
+    }
+    for e in endRules { e.forEach(visitStmt) }
+    for f in functions { f.body.forEach(visitStmt) }
+
+    return patterns
+  }
+
+  // C: awkgram.y — next/nextfile can't appear anywhere inside a function body:
+  // there's no enclosing per-record loop there, regardless of whether or how (or
+  // even if) the function is ever called.
+  func checkNextInFunctionBodies() throws {
+    func firstIllegalKind(in stmts: [Statement]) -> String? {
+      for s in stmts { if let k = firstIllegalKind(in: s) { return k } }
+      return nil
+    }
+    func firstIllegalKind(in stmt: Statement) -> String? {
+      switch stmt {
+        case .lineMarker(_, let inner): return firstIllegalKind(in: inner)
+        case .next: return "next"
+        case .nextFile: return "nextfile"
+        case .block(let stmts): return firstIllegalKind(in: stmts)
+        case .if_(_, let then, let els):
+          if let k = firstIllegalKind(in: then) { return k }
+          if let els { return firstIllegalKind(in: els) }
+          return nil
+        case .while_(_, let body), .doWhile(let body, _), .forIn(_, _, let body):
+          return firstIllegalKind(in: body)
+        case .for_(_, _, _, let body):
+          return firstIllegalKind(in: body)
+        default:
+          return nil
+      }
+    }
+
+    for fn in functions {
+      if let kind = firstIllegalKind(in: fn.body) {
+        throw AWKRuntimeError("\(kind) is illegal inside a function")
+      }
+    }
+  }
+}
+
+extension RuntimeState {
+  // C: awk compiles every regex literal in the program up front (b.c), so an
+  // invalid one is fatal immediately, even for a pattern that never matches any
+  // input. An unrecognized POSIX class name (e.g. [[:abcdef:]]) is only a
+  // warning in real awk though, not a compile error, so that case is stripped
+  // out (with a warning) before the real compile-check runs.
+  func validateStaticRegexes(_ program: AWKProgram) throws {
+    for pattern in program.staticRegexLiterals() {
+      let (cleaned, unknownClasses) = AWKRuntime.extractUnknownPosixClasses(pattern)
+      guard unknownClasses.isEmpty else {
+        for name in unknownClasses { WARNING("unknown character class: \(name)") }
+        // Stripping the unknown class(es) can leave a malformed leftover (e.g.
+        // `[[:abcdef:]]` → `[]`, an empty bracket expression) that Swift's Regex
+        // rejects even though real awk only warns here — don't let that leftover
+        // compile failure escalate a warning into a fatal error.
+        continue
+      }
+      _ = try AWKRuntime.makeRegex(cleaned)
+    }
+  }
 }

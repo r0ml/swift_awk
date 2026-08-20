@@ -169,7 +169,15 @@ extension RuntimeState {
       }
       functions[fn.name] = fn
     }
-    
+
+    // C: awk compiles the whole program — including every regex literal and
+    // function body — before running any of it, so mistakes here (an invalid
+    // regex, a next/nextfile inside a function) are fatal up front even if the
+    // offending code would never actually execute against this input.
+    try program.checkNextInFunctionBodies()
+    try validateStaticRegexes(program)
+
+
     // Range-pattern pairstack
     pairstack = Array(repeating: false, count: program.rules.count)
     
@@ -484,19 +492,19 @@ extension RuntimeState {
       let cur = ValueCell(number: getField(n) == "" ? 0 : 0)
       let curStr = getField(n)
       let curNum = AWKRuntime.parseNum(curStr)
-      let newVal = applyOp(op, lhsNum: curNum, lhsStr: curStr, rhs: rhsVal)
+      let newVal = try applyOp(op, lhsNum: curNum, lhsStr: curStr, rhs: rhsVal)
       setField(n, newVal.asString())
       _ = cur  // suppress warning
       return newVal
     }
-    
+
     return try await evalLValue(lv) { target in
-      return self.applyOp(op, lhsNum: target.getNumber(), lhsStr: target.asString(), rhs: rhsVal)
+      return try self.applyOp(op, lhsNum: target.getNumber(), lhsStr: target.asString(), rhs: rhsVal)
     }
   }
-  
+
   // C: assign() operator switch — run.c
-  func applyOp(_ op: AssignOp, lhsNum: Double, lhsStr: String, rhs: Cell) -> Cell {
+  func applyOp(_ op: AssignOp, lhsNum: Double, lhsStr: String, rhs: Cell) throws -> Cell {
     switch op {
       case .set:    return rhs
       case .addSet: return ValueCell(number: lhsNum + rhs.getNumber())
@@ -504,9 +512,11 @@ extension RuntimeState {
       case .mulSet: return ValueCell(number: lhsNum * rhs.getNumber())
       case .divSet:
         let d = rhs.getNumber()
-        return ValueCell(number: d == 0 ? 0 : lhsNum / d)   // real code throws
+        if d == 0 { throw AWKRuntimeError("division by zero in /=") }
+        return ValueCell(number: lhsNum / d)
       case .modSet:
         let d = rhs.getNumber()
+        if d == 0 { throw AWKRuntimeError("division by zero in %=") }
         var i = 0.0; modf(lhsNum / d, &i)
         return ValueCell(number: lhsNum - d * i)
       case .powSet:

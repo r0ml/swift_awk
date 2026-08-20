@@ -18,8 +18,7 @@ extension awkTest {
             ("/[[/", "[Ee]xpected"),
             ("/[]", "unterminated regex"),
             ("/[\\", "unexpected.*regex"),
-            ("BEGIN { s = \"[x\"; if (1 ~ s) print \"foo\" }", "{Ee]xpected"),
-            ("/[[:abcdef:]]/", "unknown character class"),
+            ("BEGIN { s = \"[x\"; if (1 ~ s) print \"foo\" }", "[Ee]xpected"),
             ("BEGIN { if (\"x\" ~ /$^/) print \"ugh\" }", "syntax error"),
             ("/((.)/", "syntax error"),
             ("BEGIN { print 1/0}", "division by zero"),
@@ -50,7 +49,7 @@ extension awkTest {
             (" { continue } ", "outside"),
             (" { print \"abc\n }", "unterminated"),
             (" BEGIN { print $\"foo\" }", "illegal field"),
-            (" BEGIN { f() }\nfunction f() { next }", "illegal.*from BEGIN"),
+            (" BEGIN { f() }\nfunction f() { next }", "illegal inside a function"),
             ("BEGIN { printf(\"%s\") }", "not enough args"),
             ("BEGIN { printf(\"%z\", \"foo\") }", "weird.*conversion"),
             ("""
@@ -133,6 +132,14 @@ extension awkTest {
                       function mp(){ cnt++;}
                       BEGIN {  mp(xx) }
                       """)
+    }
+
+    // An unrecognized POSIX character class name (e.g. [[:abcdef:]]) is a
+    // non-fatal warning in real awk, not a compile error — the regex still
+    // compiles (minus that class) and the program keeps running, exiting 0.
+    @Test("unknownCharacterClass") func unknownCharacterClass() async throws {
+      try await run(error: /unknown character class/,
+                    args: "/[[:abcdef:]]/")
     }
 
     @Test("third", arguments: [

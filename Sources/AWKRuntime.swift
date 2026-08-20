@@ -213,6 +213,55 @@ enum AWKRuntime {
   
   // C: makedfa() — b.c
   static func makeRegex(_ pattern: String) throws -> Regex<AnyRegexOutput> {
+    // C: b.c's own regex compiler gives specific wording ("illegal primary in
+    // regular expression" / "syntax error in regular expression") for a couple of
+    // paren-balance mistakes that Swift's Regex compiler doesn't distinguish (it
+    // just says "expected ')'" for both an empty group and an unclosed group).
+    // Bracket-expression contents are skipped since parens inside a class (e.g.
+    // `[()]`) are literal members, not grouping.
+    var depth = 0
+    var lastOpenHasNothingAfter = false
+    var i = pattern.startIndex
+    while i < pattern.endIndex {
+      let c = pattern[i]
+      if c == "\\" {
+        i = pattern.index(after: i)
+        if i < pattern.endIndex { i = pattern.index(after: i) }
+        lastOpenHasNothingAfter = false
+        continue
+      }
+      if c == "[" {
+        var j = pattern.index(after: i)
+        if j < pattern.endIndex, pattern[j] == "^" { j = pattern.index(after: j) }
+        var first = true
+        while j < pattern.endIndex {
+          if pattern[j] == "]" && !first { j = pattern.index(after: j); break }
+          if pattern[j] == "\\" { j = pattern.index(after: j) }
+          if j < pattern.endIndex { j = pattern.index(after: j) }
+          first = false
+        }
+        i = j
+        lastOpenHasNothingAfter = false
+        continue
+      }
+      if c == "(" {
+        depth += 1
+        let next = pattern.index(after: i)
+        lastOpenHasNothingAfter = (next == pattern.endIndex) || pattern[next] == ")"
+      } else if c == ")" {
+        depth -= 1
+        lastOpenHasNothingAfter = false
+      } else {
+        lastOpenHasNothingAfter = false
+      }
+      i = pattern.index(after: i)
+    }
+    if lastOpenHasNothingAfter {
+      throw AWKRuntimeError("illegal primary in regular expression \(pattern)")
+    }
+    if depth != 0 {
+      throw AWKRuntimeError("syntax error in regular expression \(pattern)")
+    }
     do {
       // one-true-awk matches individual (wide) characters, not grapheme clusters — e.g. a
       // combining/joining mark like ZWNJ is its own character, not fused with its neighbor.
@@ -220,10 +269,45 @@ enum AWKRuntime {
       // [[:alpha:]] consume a ZWNJ that happens to follow a letter.
       return try Regex(fixre(pattern)).matchingSemantics(.unicodeScalar)
     } catch {
-      throw AWKRuntimeError("invalid regex /\(pattern)/: \(error.localizedDescription)")
+      // Interpolating the error (not .localizedDescription, which is a useless
+      // generic string for regex parse errors) surfaces Swift's own diagnostic,
+      // e.g. "expected ')'" or "expected custom character class members".
+      throw AWKRuntimeError("invalid regex /\(pattern)/: \(error)")
     }
   }
-  
+
+  // Returns (pattern with any unknown [:name:] POSIX classes stripped out, the
+  // unknown names found). An unrecognized class name is a non-fatal warning in
+  // real awk, not a compile error, so it can't just be left for Regex to reject.
+  static func extractUnknownPosixClasses(_ pattern: String) -> (String, [String]) {
+    let known: Set<String> = ["alpha", "digit", "alnum", "upper", "lower", "space",
+                               "punct", "print", "graph", "cntrl", "blank", "xdigit"]
+    var result = ""
+    var unknown: [String] = []
+    let chars = Array(pattern)
+    var i = 0
+    while i < chars.count {
+      if chars[i] == "[", i + 1 < chars.count, chars[i + 1] == ":" {
+        var j = i + 2
+        var name = ""
+        while j < chars.count, chars[j].isLetter { name.append(chars[j]); j += 1 }
+        if !name.isEmpty, j + 1 < chars.count, chars[j] == ":", chars[j + 1] == "]" {
+          if known.contains(name) {
+            result.append(contentsOf: chars[i...(j + 1)])
+          } else {
+            unknown.append(name)
+          }
+          i = j + 2
+          continue
+        }
+      }
+      result.append(chars[i])
+      i += 1
+    }
+    return (result, unknown)
+  }
+
+
   // Apply the AWK sub/gsub replacement string (& = matched text, \& = literal &, etc.)
   // C: backsub() — run.c
   static func applyReplacement(_ repl: String, matched: Substring) -> String {
