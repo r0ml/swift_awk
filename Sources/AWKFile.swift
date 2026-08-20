@@ -95,7 +95,7 @@ public struct SyncByteStream: Sequence {
 enum RSMode {
   case char(UInt8)
   case paragraph
-  case pattern(Regex<AnyRegexOutput>?)
+  case pattern(Regex<AnyRegexOutput>?, anchoredToStart: Bool)
 }
 
 // needs to be a class -- otherwise the struct gets copied and it doesn't work
@@ -113,7 +113,12 @@ public struct SyncRecordReader: Sequence {
     } else if rs.count == 1 {
       self.mode = .char(rs.first!.asciiValue ?? 10)
     } else {
-      self.mode = .pattern(try? Regex(fixre(rs)))
+      // C: RS as ERE — a "^"-anchored pattern can, by definition, only ever match
+      // the true start of the input stream. Matching it against a freshly-sliced
+      // buffer on every call (as below) would let it spuriously match again at
+      // the start of each *remaining* chunk instead, splitting the input far more
+      // than real awk does — tracked below via `anchoredToStart` / `producedFirstPatternRecord`.
+      self.mode = .pattern(try? Regex(fixre(rs)), anchoredToStart: rs.hasPrefix("^"))
     }
   }
 
@@ -122,6 +127,7 @@ public struct SyncRecordReader: Sequence {
     var buffer = [UInt8]()
     var encoding : IEncoding = .utf8
     var mode : RSMode
+    var producedFirstPatternRecord = false
 
     func decode(_ bytes: [UInt8]) -> String? {
       // `encoding` is usually derived from the process locale, which requires a prior
@@ -184,8 +190,19 @@ public struct SyncRecordReader: Sequence {
     }
 
     // C: RS as ERE — a one-true-awk extension for multi-character RS
-    mutating func nextPatternDelimited(_ re: Regex<AnyRegexOutput>?) -> String? {
+    mutating func nextPatternDelimited(_ re: Regex<AnyRegexOutput>?, anchoredToStart: Bool) -> String? {
       guard let re else { return nextLine(rs: 0x0A) }
+      defer { producedFirstPatternRecord = true }
+      // A "^"-anchored separator can, by definition, only match the true start of
+      // input — once the first record has been split off, no further match is
+      // possible, so the remainder of the input becomes one final record.
+      if anchoredToStart && producedFirstPatternRecord {
+        while let byte = byteIterator.next() { buffer.append(byte) }
+        guard !buffer.isEmpty else { return nil }
+        let record = decode(buffer)
+        buffer.removeAll()
+        return record
+      }
       while true {
         // A match whose range extends all the way to the end of what's buffered so far
         // could still grow with more input (e.g. "X+" against "aXX" might yet consume a
@@ -218,7 +235,7 @@ public struct SyncRecordReader: Sequence {
       switch mode {
         case .char(let rs): return nextLine(rs: rs)
         case .paragraph: return nextParagraph()
-        case .pattern(let re): return nextPatternDelimited(re)
+        case .pattern(let re, let anchoredToStart): return nextPatternDelimited(re, anchoredToStart: anchoredToStart)
       }
     }
   }

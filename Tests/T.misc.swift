@@ -279,14 +279,13 @@ extension awkTest {
     }
     
     @Test("twentyfourth") func twentyfourth() async throws {
+      // RS="^a" can only match the true start of input, so real awk splits off
+      // just one (empty) leading record; everything else — including the
+      // embedded newline, no longer a separator once RS isn't "\n" — becomes a
+      // single final record.
       try await run(withStdin: "aaa1a2a\n",
-                    output: """
-      
-      aa1a2a
-      
-      
-      
-      """, args: "1", "RS=^a")
+                    output: "\naa1a2a\n\n",
+                    args: "1", "RS=^a")
     }
     
     
@@ -398,9 +397,11 @@ BEGIN { exit }
                       """)
     }
     
-    // This should complain about missing atan2 argument:
+    // This should complain about missing atan2 argument. Real awk treats this
+    // as a non-fatal warning (exit 0, defaulting the second argument to 1.0),
+    // not a fatal error.
     @Test("thirtysixth") func thirtysixth() async throws {
-      try await run(status: 2, error: /requires two arg/,
+      try await run(error: /requires two arg/,
                     args: "BEGIN { atan2(1) }")
     }
     

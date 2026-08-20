@@ -131,9 +131,12 @@ struct AWKLexer {
           while let ch = cur(), ch != "\n" { eat() }
           
         case "\\":
-          // Line continuation: \ followed by \n (or \r\n) — skip both.
-          if peek() == "\n" { eat(); eat() }
-          else if peek() == "\r\n" { eat(); eat() }
+          // Line continuation: \ followed by \n (or \r\n) — skip both. `eat()`
+          // unconditionally bumps `line` on the '\n' it consumes here, but real
+          // awk treats a continued line as still the *same* logical line for
+          // line-number reporting, so undo that increment.
+          if peek() == "\n" { eat(); eat(); line -= 1 }
+          else if peek() == "\r\n" { eat(); eat(); line -= 1 }
           else {
             eat()
             throw LexError("syntax error near bare '\\' at line \(line)")

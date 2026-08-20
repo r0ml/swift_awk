@@ -448,6 +448,11 @@ extension RuntimeState {
           fmt.formIndex(after: &i)
         } else { while i < fmt.endIndex && fmt[i] >= "0" && fmt[i] <= "9" { spec.append(fmt[i]); fmt.formIndex(after: &i) } }
       }
+      // C: format() — run.c — a '$' here means someone tried C's positional-
+      // argument syntax (e.g. "%2$s"), which real awk's printf never supported.
+      if i < fmt.endIndex && fmt[i] == "$" {
+        throw AWKRuntimeError("'$' not permitted in awk formats")
+      }
       // skip size modifiers — but only when a real conversion letter actually
       // follows them (e.g. "%ld"); otherwise a bare "%z" would silently vanish
       // (consumed as a "modifier" with nothing left after it) instead of being
@@ -500,8 +505,13 @@ extension RuntimeState {
         case "s": result += specc.cFormat( arg.asString(fmt: CONVFMT))
         case "c":
           if arg.isNumber && arg.getNumber().rounded() == arg.getNumber() {
+            // C: format() — run.c — %c of 0 is a real NUL byte in the output,
+            // not nothing; cFormat's vsnprintf-based construction already
+            // preserves it correctly (it sizes/copies by exact byte count, not
+            // C-string NUL-termination), so there's no reason to special-case
+            // and skip it here.
             let nn = UInt(arg.getNumber()) & 0xFF
-            if nn != 0 { result += specc.cFormat( UInt8(nn)) }
+            result += specc.cFormat( UInt8(nn))
           } else {
             let s = arg.asString()
             result += (spec+".1s").cFormat(s)

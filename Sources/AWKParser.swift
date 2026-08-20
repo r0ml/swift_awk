@@ -242,6 +242,14 @@ private func stmtBlock() -> Parser<[Statement]> {
         if stream.first == .funcKeyword {
             throw ParseError("illegal nested function")
         }
+        // C: awkgram.y — sub/gsub's third argument must be an lvalue (it's the
+        // grammar's `var` nonterminal, not a general expression); a literal there
+        // (e.g. gsub(/re/, repl, "literal")) fails inside parsePrefix(), but that
+        // failure is swallowed the same way as the funcKeyword case above, leaving
+        // the sub/gsub token itself as the unconsumed leftover here.
+        if stream.first == .kwSub || stream.first == .kwGsub {
+            throw ParseError("syntax error")
+        }
         try rbrace().parse(&stream)
         return stmts
     }

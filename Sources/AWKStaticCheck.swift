@@ -354,6 +354,132 @@ extension AWKProgram {
     for e in endRules { try check(e, inLoop: false) }
     for f in functions { try check(f.body, inLoop: false) }
   }
+
+  // C: awkgram.y — a bare constant used as a statement (e.g. `{"hello"}`) has no
+  // effect and is a syntax error in real awk's grammar, not merely a no-op.
+  // (Real awk actually rejects a much wider range of effect-free expression
+  // statements — bare variables, arithmetic, comparisons — but this only covers
+  // literal constants, the narrow case actually exercised, to avoid rejecting
+  // other expression-statement forms this interpreter currently permits.)
+  func checkNoBareConstantStatements() throws {
+    func check(_ stmts: [Statement]) throws {
+      for s in stmts { try check(s) }
+    }
+    func check(_ s: Statement) throws {
+      switch s {
+        case .lineMarker(_, let inner): try check(inner)
+        case .expression(.string), .expression(.number):
+          throw AWKRuntimeError("illegal statement")
+        case .block(let stmts): try check(stmts)
+        case .if_(_, let then, let els):
+          try check(then)
+          if let els { try check(els) }
+        case .while_(_, let body), .doWhile(let body, _),
+             .forIn(_, _, let body), .for_(_, _, _, let body):
+          try check(body)
+        default: break
+      }
+    }
+    for b in beginRules { try check(b) }
+    for r in rules { try check(r.body) }
+    for e in endRules { try check(e) }
+    for f in functions { try check(f.body) }
+  }
+
+  // C: awkgram.y — distinguishes a function whose *own body* uses its name as
+  // an array (e.g. `function pile(c) { return ++pile[c] }`) from the more
+  // general case of a name already used as an array *elsewhere* in the program
+  // before being defined as a function — real awk gives each its own message.
+  func bodyUsesNameAsArray(_ name: String, body: [Statement]) -> Bool {
+    var found = false
+    func visitLValue(_ lv: LValue) {
+      guard !found else { return }
+      switch lv {
+        case .variable: break
+        case .field(let e): visitExpr(e)
+        case .element(let n, let keys):
+          if n == name { found = true }
+          keys.forEach(visitExpr)
+        case .indirect(let e): visitExpr(e)
+      }
+    }
+    func visitExpr(_ e: Expression) {
+      guard !found else { return }
+      switch e {
+        case .element(let n, let keys):
+          if n == name { found = true }
+          keys.forEach(visitExpr)
+        case .inArray(let e1, let n):
+          if n == name { found = true }
+          visitExpr(e1)
+        case .inArrayTuple(let es, let n):
+          if n == name { found = true }
+          es.forEach(visitExpr)
+        case .splitExpr(let s, let n, let fs):
+          if n == name { found = true }
+          visitExpr(s); if let fs { visitExpr(fs) }
+        case .assign(_, let lv, let rhs): visitLValue(lv); visitExpr(rhs)
+        case .field(let e1): visitExpr(e1)
+        case .ternary(let a, let b, let c): visitExpr(a); visitExpr(b); visitExpr(c)
+        case .logicalOr(let a, let b), .logicalAnd(let a, let b),
+             .equal(let a, let b), .notEqual(let a, let b),
+             .lessThan(let a, let b), .lessEqual(let a, let b),
+             .greaterThan(let a, let b), .greaterEqual(let a, let b),
+             .patternMatch(let a, let b), .patternNotMatch(let a, let b),
+             .concat(let a, let b), .add(let a, let b), .subtract(let a, let b),
+             .multiply(let a, let b), .divide(let a, let b), .modulo(let a, let b),
+             .power(let a, let b), .indexExpr(let a, let b), .matchFuncExpr(let a, let b):
+          visitExpr(a); visitExpr(b)
+        case .notNull(let a), .negate(let a), .unaryPlus(let a), .logicalNot(let a), .closeExpr(let a):
+          visitExpr(a)
+        case .getline(let lv): if let lv { visitLValue(lv) }
+        case .getlineFrom(let lv, let e1): if let lv { visitLValue(lv) }; visitExpr(e1)
+        case .getlinePipe(let lv, let e1): if let lv { visitLValue(lv) }; visitExpr(e1)
+        case .preIncrement(let lv), .preDecrement(let lv), .postIncrement(let lv), .postDecrement(let lv):
+          visitLValue(lv)
+        case .userCall(_, let args), .builtinCall(_, let args), .sprintfExpr(let args):
+          args.forEach(visitExpr)
+        case .subExpr(_, let re, let repl, let target):
+          visitExpr(re); visitExpr(repl); visitLValue(target)
+        case .substrExpr(let s, let start, let len):
+          visitExpr(s); visitExpr(start); if let len { visitExpr(len) }
+        default: break
+      }
+    }
+    func visitStmt(_ s: Statement) {
+      guard !found else { return }
+      switch s {
+        case .lineMarker(_, let inner): visitStmt(inner)
+        case .expression(let e): visitExpr(e)
+        case .print_(_, let args, let dest):
+          args.forEach(visitExpr)
+          if let dest {
+            switch dest {
+              case .pipe(let e), .append(let e), .redirect(let e): visitExpr(e)
+            }
+          }
+        case .delete_(let lv): visitLValue(lv)
+        case .if_(let cond, let then, let els):
+          visitExpr(cond); visitStmt(then)
+          if let els { visitStmt(els) }
+        case .while_(let cond, let body): visitExpr(cond); visitStmt(body)
+        case .doWhile(let body, let cond): visitStmt(body); visitExpr(cond)
+        case .for_(let initS, let cond, let post, let body):
+          if let initS { visitStmt(initS) }
+          if let cond { visitExpr(cond) }
+          if let post { visitStmt(post) }
+          visitStmt(body)
+        case .forIn(_, let arrName, let body):
+          if arrName == name { found = true }
+          visitStmt(body)
+        case .block(let stmts): stmts.forEach(visitStmt)
+        case .exit_(let e), .return_(let e): if let e { visitExpr(e) }
+        default: break
+      }
+    }
+    body.forEach(visitStmt)
+    return found
+  }
 }
 
 extension RuntimeState {

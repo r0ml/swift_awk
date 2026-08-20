@@ -169,8 +169,14 @@ extension RuntimeState {
       }
       // C: defn() — awkgram.y — a name already used as an array elsewhere in the
       // program (checked statically, see staticArrayVariableNames()) can't also
-      // name a function.
+      // name a function. Real awk gives a distinct message when the conflicting
+      // array usage is a self-reference inside the function's own body (e.g.
+      // `function pile(c) { return ++pile[c] }`), versus the array usage having
+      // occurred elsewhere in the program before this definition.
       if declaredArrayNames.contains(fn.name) {
+        if program.bodyUsesNameAsArray(fn.name, body: fn.body) {
+          throw AWKRuntimeError("`\(fn.name)' is an array name and a function name\n context is\n\t...")
+        }
         throw AWKRuntimeError("\(fn.name) is an array, not a function")
       }
       functions[fn.name] = fn
@@ -181,6 +187,7 @@ extension RuntimeState {
     // regex, a next/nextfile inside a function) are fatal up front even if the
     // offending code would never actually execute against this input.
     try program.checkNextInFunctionBodies()
+    try program.checkNoBareConstantStatements()
     try program.checkReturnOutsideFunction()
     try program.checkBreakContinueOutsideLoop()
     try validateStaticRegexes(program)
@@ -776,6 +783,9 @@ extension RuntimeState {
 
       case .atan2:
         let y = try await eval(args[0]).getNumber()
+        if args.count <= 1 {
+          WARNING("atan2 requires two arguments; returning 1.0")
+        }
         let x = args.count > 1 ? try await eval(args[1]).getNumber() : 1.0
         return ValueCell(number: atan2(y, x))
         
