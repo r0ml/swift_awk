@@ -301,6 +301,59 @@ extension AWKProgram {
       }
     }
   }
+
+  // C: awkgram.y — `return` is only meaningful inside a function body; BEGIN/END/
+  // main-rule bodies have no caller to return to.
+  func checkReturnOutsideFunction() throws {
+    func containsReturn(_ stmts: [Statement]) -> Bool {
+      stmts.contains { containsReturn($0) }
+    }
+    func containsReturn(_ s: Statement) -> Bool {
+      switch s {
+        case .lineMarker(_, let inner): return containsReturn(inner)
+        case .return_: return true
+        case .block(let stmts): return containsReturn(stmts)
+        case .if_(_, let then, let els):
+          return containsReturn(then) || (els.map(containsReturn) ?? false)
+        case .while_(_, let body), .doWhile(let body, _),
+             .forIn(_, _, let body), .for_(_, _, _, let body):
+          return containsReturn(body)
+        default: return false
+      }
+    }
+    for b in beginRules where containsReturn(b) { throw AWKRuntimeError("return not in function") }
+    for r in rules where containsReturn(r.body) { throw AWKRuntimeError("return not in function") }
+    for e in endRules where containsReturn(e) { throw AWKRuntimeError("return not in function") }
+  }
+
+  // C: awkgram.y — `break`/`continue` are only meaningful lexically inside a loop
+  // (for/while/do-while), whether or not that loop is itself inside a function.
+  func checkBreakContinueOutsideLoop() throws {
+    func check(_ stmts: [Statement], inLoop: Bool) throws {
+      for s in stmts { try check(s, inLoop: inLoop) }
+    }
+    func check(_ s: Statement, inLoop: Bool) throws {
+      switch s {
+        case .lineMarker(_, let inner): try check(inner, inLoop: inLoop)
+        case .break_:
+          if !inLoop { throw AWKRuntimeError("break illegal outside of loops") }
+        case .continue_:
+          if !inLoop { throw AWKRuntimeError("continue illegal outside of loops") }
+        case .block(let stmts): try check(stmts, inLoop: inLoop)
+        case .if_(_, let then, let els):
+          try check(then, inLoop: inLoop)
+          if let els { try check(els, inLoop: inLoop) }
+        case .while_(_, let body), .doWhile(let body, _),
+             .forIn(_, _, let body), .for_(_, _, _, let body):
+          try check(body, inLoop: true)
+        default: break
+      }
+    }
+    for b in beginRules { try check(b, inLoop: false) }
+    for r in rules { try check(r.body, inLoop: false) }
+    for e in endRules { try check(e, inLoop: false) }
+    for f in functions { try check(f.body, inLoop: false) }
+  }
 }
 
 extension RuntimeState {

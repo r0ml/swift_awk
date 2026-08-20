@@ -87,7 +87,8 @@ extension awkTest {
             
             
               ]) func first(_ s : String, _ b : String) async throws {
-                try await run(status: 2,
+                try await run(withStdin: FilePath("/etc/passwd"), 
+                              status: 2,
                               error: Regex(b),
                               args: s)
     }

@@ -175,6 +175,8 @@ extension RuntimeState {
     // regex, a next/nextfile inside a function) are fatal up front even if the
     // offending code would never actually execute against this input.
     try program.checkNextInFunctionBodies()
+    try program.checkReturnOutsideFunction()
+    try program.checkBreakContinueOutsideLoop()
     try validateStaticRegexes(program)
 
 
@@ -928,7 +930,17 @@ extension RuntimeState {
     let isRegexLiteral: Bool
     if let sepExpr = sep {
       if case .regexMatch(let pat) = sepExpr { fs = pat; isRegexLiteral = true }
-      else { fs = try await eval(sepExpr).asString(); isRegexLiteral = false }
+      else {
+        let sepVal = try await eval(sepExpr)
+        // C: array_or_scalar checks — tran.c — an array can't be read as a plain
+        // scalar value; this only matters for a bare `name` (element/`in` access
+        // goes through different Expression cases entirely).
+        if sepVal is Dictionary, case .variable(let vname) = sepExpr {
+          throw AWKRuntimeError("can't read value of \(vname); it's an array name.")
+        }
+        fs = sepVal.asString()
+        isRegexLiteral = false
+      }
     } else {
       fs = FS
       isRegexLiteral = false

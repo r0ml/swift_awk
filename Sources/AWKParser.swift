@@ -227,7 +227,20 @@ private func varList() -> Parser<[String]> {
 // A block: lbrace stmtlist rbrace
 // C: action — awkgram.y
 private func stmtBlock() -> Parser<[Statement]> {
-    between(lbrace(), stmtList(), rbrace())
+    Parser { stream in
+        try lbrace().parse(&stream)
+        let stmts = try stmtList().parse(&stream)
+        // C: awkgram.y — a function definition can't appear inside a statement
+        // block. `stmtList()`'s `.many` can't propagate this itself (a nested
+        // parse failure there just looks like "no more statements"), so it's
+        // detected here instead: `stmtList()` stopping with `funcKeyword` still
+        // pending is only possible in this one situation.
+        if stream.first == .funcKeyword {
+            throw ParseError("illegal nested function")
+        }
+        try rbrace().parse(&stream)
+        return stmts
+    }
 }
 
 // MARK: - Statements

@@ -156,7 +156,15 @@ extension RuntimeState {
         return try resolveVar(name, nil)
 
       case .field(let e):
-        let n = try fieldIndex(try await eval(e).getNumber())
+        let ec = try await eval(e)
+        // C: array_or_scalar... actually fldadr()/awk's $ operator — run.c — the field
+        // index must be a number or a "numeric string"; forcing getNumber() first
+        // updates the numeric-string sticky flag so a value like $"3" is still legal.
+        let num = ec.getNumber()
+        guard ec.isNumber else {
+          throw AWKRuntimeError("illegal field $(\(ec.asString()))")
+        }
+        let n = try fieldIndex(num)
         let s = getField(n)
         let c = ValueCell(field: s)
         //          if AWKRuntime.isNumber(s) { c.numVal = AWKRuntime.parseNum(s); c.hasNum = true }
@@ -460,7 +468,12 @@ extension RuntimeState {
         continue
       }
 
-      let arg: Cell = argIdx < args.count ? (try await eval(args[argIdx])) : EmptyCell()
+      // C: format() — run.c — running out of arguments for a real conversion (not
+      // just a literal %) is fatal, matching "not enough args in printf(%s)" etc.
+      guard argIdx < args.count else {
+        throw AWKRuntimeError("not enough args in printf(\(fmt))")
+      }
+      let arg: Cell = try await eval(args[argIdx])
       argIdx += 1
 
       let specc = spec.appending(String(type))
