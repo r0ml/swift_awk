@@ -11,10 +11,8 @@ extension awkTest {
     @Test("first", 
           arguments: [
             ("/(/", "illegal primary"),
-            // FIXME: error message needs to be more useful
-            ("BEGIN { nextfile }", "nextFile"),
-            // FIXME: error message needs to be more useful
-            ("END { nextfile }", "nextFile"),
+            ("BEGIN { nextfile }", "illegal .*next.* from BEGIN"),
+            ("END { nextfile }", "illegal .*next.* from END"),
             ("function foo() { nextfile }","nextfile.*illegal"),
             ("function f(i,j,i) { return i }", "[Dd]uplicate (parameter|argument)"),
             ("/[[/", "[Ee]xpected"),
@@ -52,7 +50,7 @@ extension awkTest {
             (" { continue } ", "outside"),
             (" { print \"abc\n }", "unterminated"),
             (" BEGIN { print $\"foo\" }", "illegal field"),
-            (" BEGIN { f() }\nfunction f() { next }", "illegal inside a function"),
+            (" BEGIN { f() }\nfunction f() { next }", "illegal.*from BEGIN"),
             ("BEGIN { printf(\"%s\") }", "not enough args"),
             ("BEGIN { printf(\"%z\", \"foo\") }", "weird.*conversion"),
             ("""
@@ -61,29 +59,25 @@ extension awkTest {
                 e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,f1,f2,f3,f4,f5,f6,f7,f8,f9,f10) {}
               BEGIN { f(123) }              
               """, "too many args"),
-            ("])}", "bailing"),
-            ("{ print }}", "bailing"),
-            ("{ print }}}", "bailing"),
-            ("]", "bailing"),
-            ("[", "bailing"),
-            ("a & b", "bailing"),
+            ("])}", "extra"),
+            ("{ print }}", "extra"),
+            ("{ print }}}", "extra"),
+            ("]", "extra"),
+            ("[", "[Uu]nexpected"),
+            ("a & b", "not valid"),
             ("{ x = 1) }", "extra"),
-            ("{ print ))}", "[Ee]xpected"),
+            ("{ print ))}", "extra"),
             ("{{ print }", "[Ee]xpected"),
-            ("{{{ print }", "illegal"),
-            ("BEGIN { next }", "illegal next"),
+            ("{{{ print }", "[Ee]xpected"),
+            ("BEGIN { next }", "illegal .*next.* from BEGIN"),
             // 157
-            ("END {  next; print NR }", "illegal next"),
+            ("END {  next; print NR }", "illegal .*next.* from END"),
             (#"BEGIN { print "abc" >"/etc/passwd" }"#, "can.t open file"),
             ("""
               function f() { print 1 }
               function f() { print 2 }
-              
+
               """, "define function"),
-            ("""
-              function mp(){ cnt++;}
-              BEGIN {  mp(xx) }              
-              """, "called with"),
             (#"BEGIN { index("abc", /a/) }"#, "index.*doesn.t permit regular"),
             (#"BEGIN { print >foo }"#, "null file name in print or getline"),
             ("BEGIN { foo() }", "undefined function"),
@@ -129,6 +123,16 @@ extension awkTest {
     // error — real awk just prints a blank line, matching an empty $0.
     @Test("barePrintInBegin") func barePrintInBegin() async throws {
       try await run(output: "\n", args: "BEGIN { print }")
+    }
+
+    // Calling a user-defined function with more arguments than it declares is also
+    // a non-fatal warning — the call proceeds using only the declared parameters.
+    @Test("functionCalledWithTooManyArgs") func functionCalledWithTooManyArgs() async throws {
+      try await run(error: /called with/,
+                    args: """
+                      function mp(){ cnt++;}
+                      BEGIN {  mp(xx) }
+                      """)
     }
 
     @Test("third", arguments: [

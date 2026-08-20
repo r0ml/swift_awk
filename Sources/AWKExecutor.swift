@@ -162,7 +162,13 @@ extension RuntimeState {
       self.ARGV[String(i+1)] = ValueCell(string: x)
     }
 
-    for fn in program.functions { functions[fn.name] = fn }
+    for fn in program.functions {
+      // C: defn() — awkgram.y — redefining a function is a fatal, not a silent overwrite.
+      if functions[fn.name] != nil {
+        throw AWKRuntimeError("you can't define function \(fn.name) more than once")
+      }
+      functions[fn.name] = fn
+    }
     
     // Range-pattern pairstack
     pairstack = Array(repeating: false, count: program.rules.count)
@@ -176,8 +182,12 @@ extension RuntimeState {
       exitCode = code
       try await runEndBlocks(program)
       return
+    } catch AWKSignal.next, AWKSignal.nextFile, AWKSignal.break_, AWKSignal.continue_ {
+      // C: program() — run.c — there's no enclosing record loop in BEGIN to catch
+      // these, so they're fatal here rather than silently doing nothing.
+      throw AWKRuntimeError("illegal break, continue, next or nextfile from BEGIN")
     }
-    
+
     // --- Per-record body ---
     if !program.rules.isEmpty || !program.endRules.isEmpty {
     getr:
@@ -220,6 +230,8 @@ extension RuntimeState {
       }
     } catch AWKSignal.exit_(let code) {
       exitCode = code
+    } catch AWKSignal.next, AWKSignal.nextFile, AWKSignal.break_, AWKSignal.continue_ {
+      throw AWKRuntimeError("illegal break, continue, next or nextfile from END")
     }
     inEndBlock = false
     await closeAll()
@@ -618,6 +630,11 @@ extension RuntimeState {
   func execUserCall(name: String, argExprs: [Expression]) async throws -> Cell {
     guard let fn = functions[name] else {
       throw AWKRuntimeError("calling undefined function '\(name)'")
+    }
+    // C: call() — run.c — calling with more arguments than declared is a non-fatal
+    // warning; the call still proceeds, using only the declared parameters.
+    if argExprs.count > fn.params.count {
+      WARNING("function \(name) called with \(argExprs.count) args, uses only \(fn.params.count)")
     }
     // Evaluate actual arguments
     var cells: [Cell] = []

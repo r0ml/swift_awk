@@ -283,7 +283,9 @@ extension RuntimeState {
           let fh = try FileDescriptor(forWriting: name)
           f = AWKFile(name: name, mode: mode, handle: fh)
         } catch(let e) {
-          throw AWKRuntimeError("cannot open '\(name)' for writing: \(e)")
+          // C: openfile() — lib.c — real awk's wording is "can't open file %s" for
+          // every mode; matched here so scripts/tests grepping for it still work.
+          throw AWKRuntimeError("can't open file '\(name)' for writing: \(e)")
         }
       case .append:
         do {
@@ -291,14 +293,14 @@ extension RuntimeState {
           try fh.seek(offset: 0, from: .end)
           f = AWKFile(name: name, mode: mode, handle: fh)
         } catch(let e) {
-          throw AWKRuntimeError("cannot open '\(name)' for append: \(e)")
+          throw AWKRuntimeError("can't open file '\(name)' for append: \(e)")
         }
       case .read:
         do {
           let fh = name == "-" ? FileDescriptor.standardInput : try FileDescriptor(forReading: name)
           f = AWKFile(name: name, mode: mode, handle: fh)
         } catch(let e) {
-          throw AWKRuntimeError("cannot open '\(name)' for reading: \(e)")
+          throw AWKRuntimeError("can't open file '\(name)' for reading: \(e)")
         }
       case .outputPipe:
 
