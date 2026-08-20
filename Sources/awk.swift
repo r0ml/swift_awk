@@ -104,7 +104,11 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
       case "v":  /* -v a=1 to be done NOW.  one -v for each */
         let vn = v
           if (await runtime.isclvar(vn)) {
-            await runtime.setclvar(vn)
+            do {
+              try await runtime.setclvar(vn)
+            } catch(let e) {
+              throw CmdErr(2, "\(e)")
+            }
         }
         else {
           throw CmdErr(2, "invalid -v option argument: \(vn)")

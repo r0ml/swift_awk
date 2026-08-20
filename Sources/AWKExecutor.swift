@@ -49,10 +49,10 @@ extension RuntimeState {
     return true
   }
 
-  func setclvar(_ ss : String) async { // set var=value from s
+  func setclvar(_ ss : String) async throws { // set var=value from s
     let k = ss.split(separator: "=")
-    let p = String(k[1])
     let s = String(k[0])
+    let p = try AWKRuntime.qstringDecode(String(k[1]))
     await setsym(s, ValueCell(string: p))
     DPRINTF("command line set \(s) to |\(p)|\n")
   }
@@ -85,7 +85,7 @@ extension RuntimeState {
         if fileNdx < ARGC,
             let z = ARGV[String(fileNdx)],
            isclvar(z.asString()) {
-          await setclvar(z.asString())
+          try await setclvar(z.asString())
           fileNdx += 1
           continue
         }
@@ -532,13 +532,21 @@ extension RuntimeState {
       case .none:
         output = AWKFile(name: "/dev/stdout", mode: .write, handle: .standardOutput)
       case .redirect(let e):
+        if options.safe { throw AWKRuntimeError("print > is unsafe") }
         let path = try await eval(e).asString()
+        // C: openfile() — lib.c — an empty target (e.g. an uninitialized variable
+        // used as the filename) is fatal, not silently treated as a real filename.
+        if path.isEmpty { throw AWKRuntimeError("null file name in print or getline") }
         output = try await fileFor(name: path, mode: .write)
       case .append(let e):
+        if options.safe { throw AWKRuntimeError("print >> is unsafe") }
         let path = try await eval(e).asString()
+        if path.isEmpty { throw AWKRuntimeError("null file name in print or getline") }
         output = try await fileFor(name: path, mode: .append)
       case .pipe(let e):
+        if options.safe { throw AWKRuntimeError("print | is unsafe") }
         let cmd = try await eval(e).asString()
+        if cmd.isEmpty { throw AWKRuntimeError("null file name in print or getline") }
         output = try await fileFor(name: cmd, mode: .outputPipe)
     }
 
@@ -558,7 +566,9 @@ extension RuntimeState {
     let out = output ?? AWKFile(name: "/dev/stdout", mode: .write, handle: .standardOutput)
     if args.isEmpty {
       ensureRecord()
-      try out.write(record! + ORS)
+      // $0 is "" until the first record is read (e.g. a bare `print` in BEGIN),
+      // not an error condition — matches real awk, which just prints a blank line.
+      try out.write((record ?? "") + ORS)
       return
     }
     var first = true
@@ -664,7 +674,12 @@ extension RuntimeState {
       case .length:
         if args.isEmpty {
           ensureFields()
-          return ValueCell(number: record!.count)
+          return ValueCell(number: (record ?? "").count)
+        }
+        // C: bltin() — run.c — extra length() arguments are a non-fatal warning;
+        // execution continues using just the first argument.
+        if args.count > 1 {
+          WARNING("function has too many arguments")
         }
         let c = try await eval(args[0])
         return ValueCell(number: c.length() )
@@ -683,6 +698,7 @@ extension RuntimeState {
         return ValueCell(number: intPart)
         
       case .system:
+        if options.safe { throw AWKRuntimeError("system is unsafe") }
         let cmd = try await eval(args[0]).asString()
         fflush(stdout)
         var result = -1

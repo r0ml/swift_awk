@@ -251,6 +251,8 @@ extension RuntimeState {
 
       case .getlineFrom(let lv, let src):
         let path = try await eval(src).asString()
+        // C: openfile() — lib.c — an empty target is fatal for both print and getline.
+        if path.isEmpty { throw AWKRuntimeError("null file name in print or getline") }
         // C: getline() in run.c — a redirect() failure for '>'/'>>' is fatal, but
         // failing to *open* the source of `getline <file` is not: POSIX has getline
         // return -1 so the script can test for it, rather than aborting the program.
@@ -263,7 +265,9 @@ extension RuntimeState {
         return try await readLineInto(lv: lv, from: file, updates0: true)
 
       case .getlinePipe(let lv, let cmd):
+        if options.safe { throw AWKRuntimeError("cmd | getline is unsafe") }
         let cmdStr = try await eval(cmd).asString()
+        if cmdStr.isEmpty { throw AWKRuntimeError("null file name in print or getline") }
         let file = try await fileFor(name: cmdStr, mode: .inputPipe)
         return try await readLineInto(lv: lv, from: file, updates0: true)
 
@@ -361,6 +365,12 @@ extension RuntimeState {
         return try await execSplit(str: str, arrName: arrName, sep: sep)
 
       case .indexExpr(let hay, let needle):
+        // C: index() — run.c — a bare /re/ as the second argument is a regex match
+        // against $0 everywhere else, but index() takes it literally as a string,
+        // so real awk rejects it outright rather than silently stringifying it.
+        if case .regexMatch = needle {
+          throw AWKRuntimeError("index() doesn't permit regular expressions")
+        }
         let h = try await eval(hay).asString()
         let n = try await eval(needle).asString()
         // Weird, but that is the definition for AWK index

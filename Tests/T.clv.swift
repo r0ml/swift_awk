@@ -206,18 +206,22 @@ NR==1 { print x }
 
 
     @Test("twentyfour") func twentyfour() async throws {
+      // "x=a\\b\z" — \\ decodes to one backslash, \z (unrecognized escape) drops
+      // the backslash and keeps just "z", matching real awk's qstring() behavior.
       try await run(withStdin: "hello\n",
-                    output: "a\\\\b\\z\n",
+                    output: "a\\bz\n",
                     args: "{print x}",
   "x=\u{61}\\\\\u{62}\\z")
     }
 
 
     @Test("twentyfive") func twentyfive() async throws {
+      // "x=a\nz" — a literal backslash-n (as a real shell would pass through from
+      // x='a\nz') decodes to an actual newline, same as real awk.
       try await run(withStdin: "hello\n",
                     output: "a\nz\n",
                     args: "{print x}",
-                    "x=a\nz")
+                    "x=a\\nz")
     }
 
     @Test("twentysix") func twentysix() async throws {

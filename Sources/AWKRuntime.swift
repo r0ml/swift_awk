@@ -81,6 +81,45 @@ enum AWKRuntime {
     return Double(String(s[s.startIndex..<i])) ?? 0.0
   }
   
+  // C: qstring() — lib.c — decodes backslash escapes in a command-line var=value
+  // assignment (used for both -v and bare ARGV assignments) the same way a
+  // double-quoted string constant is scanned. A bare, unescaped newline is fatal;
+  // an unrecognized \X escape just drops the backslash and keeps X, matching the
+  // real awk's observed behavior (verified against /usr/bin/awk).
+  static func qstringDecode(_ s: String) throws -> String {
+    var result = ""
+    var rest = Substring(s)
+    while let c = rest.first {
+      rest.removeFirst()
+      if c == "\n" {
+        throw AWKRuntimeError("newline in string \(s.prefix(20))...")
+      }
+      guard c == "\\" else { result.append(c); continue }
+      guard let esc = rest.first else { result.append(c); break }
+      rest.removeFirst()
+      switch esc {
+        case "\n", "\r": break      // line continuation — skip
+        case "\"": result.append("\"")
+        case "n":  result.append("\n")
+        case "t":  result.append("\t")
+        case "f":  result.append("\u{0C}")
+        case "r":  result.append("\r")
+        case "b":  result.append("\u{08}")
+        case "v":  result.append("\u{0B}")
+        case "a":  result.append("\u{07}")
+        case "\\": result.append("\\")
+        case "0","1","2","3","4","5","6","7":   // octal
+          var n = esc.wholeNumberValue!
+          if let h = rest.first, h >= "0" && h <= "7" { n = 8 * n + h.wholeNumberValue!; rest.removeFirst() }
+          if let h = rest.first, h >= "0" && h <= "7" { n = 8 * n + h.wholeNumberValue!; rest.removeFirst() }
+          result.append(Character(Unicode.Scalar(UInt8(n & 0xFF))))
+        default:
+          result.append(esc)
+      }
+    }
+    return result
+  }
+
   // Number → string using printf format.  Integers use %.30g for exact output.
   // C: get_str_val() — tran.c (the CONVFMT/OFMT formatting path)
   static func numToStr(_ n: Double, fmt: String) -> String {
