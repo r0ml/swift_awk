@@ -72,6 +72,9 @@ let RECSIZE : UInt = (8 * 1024)  // sets limit on records, fields, etc., etc.
       options.programName = programName
       // for DPRINTF
 
+      if CommandLine.arguments.count == 1 {
+        throw CmdErr(1)
+      }
     let go = BSDGetopt("f:F:v:d::s::")
   loop:
     while let (k,v) = try go.getopt() {

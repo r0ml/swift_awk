@@ -1,5 +1,0 @@
-11lp:*:9:9:Print Spooler Owner:/var/spool/lp:/bin/sh
-12auditor:*:11:0:Audit Activity Owner:/auditor:/bin/sh
-13dbadmin:*:12:0:Security Database Owner:/dbadmin:/bin/sh
-14bootes:dcon:50:1:Tom Killian (DO NOT REMOVE):/tmp:
-15cdjuke:dcon:51:1:Tom Killian (DO NOT REMOVE):/tmp:
