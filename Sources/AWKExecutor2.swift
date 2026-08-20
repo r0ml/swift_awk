@@ -448,8 +448,15 @@ extension RuntimeState {
           fmt.formIndex(after: &i)
         } else { while i < fmt.endIndex && fmt[i] >= "0" && fmt[i] <= "9" { spec.append(fmt[i]); fmt.formIndex(after: &i) } }
       }
-      // skip size modifiers
+      // skip size modifiers — but only when a real conversion letter actually
+      // follows them (e.g. "%ld"); otherwise a bare "%z" would silently vanish
+      // (consumed as a "modifier" with nothing left after it) instead of being
+      // treated as itself an unrecognized conversion, per real awk.
+      let beforeModifiers = i
       while i < fmt.endIndex && "hjLlqtz".contains(fmt[i]) { fmt.formIndex(after: &i) }
+      if i >= fmt.endIndex || !"diouxXeEfgGaAsc".contains(fmt[i]) {
+        i = beforeModifiers
+      }
       guard i < fmt.endIndex else { break }
       let type = fmt[i]; fmt.formIndex(after: &i)
 
@@ -458,12 +465,11 @@ extension RuntimeState {
       // "weird printf conversion" in run.c). When it's cut off by an ordinary printable
       // character instead (as happens with dynamically-built format strings, e.g. hsprint.awk
       // embedding a label like "%0|" where "|" was never meant as a conversion), real awk
-      // just passes the whole thing through as literal text without consuming an argument.
+      // just passes the whole thing through as literal text without consuming an argument —
+      // but it still warns (never fatally) for any conversion letter it doesn't recognize,
+      // control character or not (verified against /usr/bin/awk).
       guard "diouxXeEfgGaAsc".contains(type) else {
-        let isControlChar = type.asciiValue.map { $0 < 0x20 || $0 == 0x7f } ?? false
-        guard !isControlChar else {
-          throw AWKRuntimeError("weird printf conversion %\(spec.dropFirst())\(type)")
-        }
+        WARNING("weird printf conversion %\(spec.dropFirst())\(type)")
         result += "%\(spec.dropFirst())\(type)"
         continue
       }

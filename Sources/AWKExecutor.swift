@@ -167,6 +167,12 @@ extension RuntimeState {
       if functions[fn.name] != nil {
         throw AWKRuntimeError("you can't define function \(fn.name) more than once")
       }
+      // C: defn() — awkgram.y — a name already used as an array elsewhere in the
+      // program (checked statically, see staticArrayVariableNames()) can't also
+      // name a function.
+      if declaredArrayNames.contains(fn.name) {
+        throw AWKRuntimeError("\(fn.name) is an array, not a function")
+      }
       functions[fn.name] = fn
     }
 
@@ -652,6 +658,13 @@ extension RuntimeState {
     var cells: [Cell] = []
     var lvals: [LValue?] = []
     for argExpr in argExprs {
+      // C: call() — run.c — passing a bare function name as an argument gets its
+      // own message ("can't use function F as argument in G"), distinct from the
+      // generic "can't read value of F; it's a function." for other uses.
+      if case .variable(let vname) = argExpr, functions[vname] != nil,
+         !(callStack.last?.paramNames.contains(vname) ?? false) {
+        throw AWKRuntimeError("can't use function \(vname) as argument in \(name)")
+      }
       let k = argExpr.asLValue()
       lvals.append(k)
       let c = try await eval(argExpr)

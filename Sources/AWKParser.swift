@@ -194,6 +194,10 @@ private func parseFunctionDef() -> Parser<FunctionDefinition> {
         let params = try varList().parse(&stream)
         try rparen_().parse(&stream)
         let body = try stmtBlock().parse(&stream)
+        // C: awkgram.y — a fixed limit (50) on the number of function parameters.
+        guard params.count <= 50 else {
+            throw ParseError("function \(name) has \(params.count) arguments, limit 50")
+        }
         // Check for duplicate parameter names (corresponds to checkdup in awkgram.y)
         var seen = Set<String>()
         for p in params {
